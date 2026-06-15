@@ -11,7 +11,7 @@ import * as api from "@/lib/api"
 
 interface ReviewViewProps {
   workflow: Workflow
-  onApprove: (saved: Workflow) => void
+  onApprove: (saved: Workflow) => Promise<void>
   onSaveOnly?: (updated: Workflow) => void
   onBack: () => void
   onWorkflowUpdated?: (updated: Workflow) => void
@@ -23,9 +23,10 @@ export function ReviewView({ workflow, onApprove, onSaveOnly, onBack, onWorkflow
   const [steps, setSteps]       = useState<WorkflowStep[]>(workflow.workflow_json.steps)
   const [editing, setEditing]   = useState<WorkflowStep | null>(null)
   const [addingStep, setAdding] = useState(false)
-  const [saving, setSaving]     = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [approving, setApproving] = useState(false)
   const [replanning, setReplanning] = useState(false)
-  const [err, setErr]           = useState("")
+  const [err, setErr]             = useState("")
   const [liveWf, setLiveWf]     = useState(workflow)
 
   const isSchedule = workflow.workflow_json.trigger?.type === "schedule"
@@ -75,7 +76,14 @@ export function ReviewView({ workflow, onApprove, onSaveOnly, onBack, onWorkflow
     const saved = await doSave()
     if (!saved) return
     onWorkflowUpdated?.(saved)
-    onApprove(saved)
+    setApproving(true)
+    setErr("")
+    try {
+      await onApprove(saved)
+    } catch (e) {
+      setErr(`Failed to start execution: ${String(e)}`)
+      setApproving(false)
+    }
   }
 
   function handleScheduleUpdated(updated: Workflow) {
@@ -189,13 +197,17 @@ export function ReviewView({ workflow, onApprove, onSaveOnly, onBack, onWorkflow
           </Btn>
         )}
         {!isSchedule && (
-          <Btn onClick={handleSaveAndExecute} disabled={saving} style={{ minWidth: 160 }}>
-            {saving ? <><Spinner /> Saving…</> : "Approve & Run →"}
+          <Btn onClick={handleSaveAndExecute} disabled={saving || approving} style={{ minWidth: 160 }}>
+            {saving ? <><Spinner /> Saving…</>
+              : approving ? <><Spinner /> Starting…</>
+              : "Approve & Run →"}
           </Btn>
         )}
         {isSchedule && (
-          <Btn variant="ghost" onClick={handleSaveAndExecute} disabled={saving} style={{ minWidth: 160 }}>
-            {saving ? <><Spinner /> Saving…</> : "Save & Run Now"}
+          <Btn variant="ghost" onClick={handleSaveAndExecute} disabled={saving || approving} style={{ minWidth: 160 }}>
+            {saving ? <><Spinner /> Saving…</>
+              : approving ? <><Spinner /> Starting…</>
+              : "Save & Run Now"}
           </Btn>
         )}
       </div>

@@ -169,7 +169,7 @@ interface WorkflowsContentProps {
   onEditSteps: () => void
   onRun: () => void
   onHistorySelect: (ex: Execution) => void
-  onApprove: (wf: Workflow) => void
+  onApprove: (wf: Workflow) => Promise<void>
   onSaveOnly: (wf: Workflow) => void
   onBack: () => void
   onRunAgain: (wf: Workflow) => void
@@ -489,14 +489,12 @@ function WorkflowApp() {
     finally { setPlanning(false) }
   }
 
-  async function handleApprove(wf: Workflow) {
-    try {
-      const result = await api.approveWorkflow(wf.id, true) as Execution
-      const approvedWf: Workflow = { ...wf, status: "approved" }
-      setSelected(approvedWf)
-      setWorkflows(prev => prev.map(w => w.id === approvedWf.id ? approvedWf : w))
-      setWfView({ type: "executing", executionId: result.id, workflow: approvedWf })
-    } catch (e) { alert(String(e)) }
+  async function handleApprove(wf: Workflow): Promise<void> {
+    const result = await api.approveWorkflow(wf.id, true) as Execution
+    const approvedWf: Workflow = { ...wf, status: "approved" }
+    setSelected(approvedWf)
+    setWorkflows(prev => prev.map(w => w.id === approvedWf.id ? approvedWf : w))
+    setWfView({ type: "executing", executionId: result.id, workflow: approvedWf })
   }
 
   async function handleRunAgain(wf: Workflow) {

@@ -33,10 +33,17 @@ def init_db() -> None:
 def _migrate_schema() -> None:
     """Add new columns to existing tables without Alembic."""
     with engine.connect() as conn:
+        # workflows table
+        _add_column_if_missing(conn, "workflows", "explanation",       "TEXT NOT NULL DEFAULT ''")
         _add_column_if_missing(conn, "workflows", "schedule_enabled",  "BOOLEAN NOT NULL DEFAULT 0")
         _add_column_if_missing(conn, "workflows", "schedule_timezone", "VARCHAR NOT NULL DEFAULT 'UTC'")
         _add_column_if_missing(conn, "workflows", "status",            "VARCHAR NOT NULL DEFAULT 'draft'")
-        _add_column_if_missing(conn, "execution_logs", "updated_at",   "DATETIME")
+        # workflow_versions table (added after initial deploy)
+        _add_column_if_missing(conn, "workflow_versions", "name",           "VARCHAR NOT NULL DEFAULT ''")
+        _add_column_if_missing(conn, "workflow_versions", "change_summary", "TEXT NOT NULL DEFAULT 'Initial creation'")
+        _add_column_if_missing(conn, "workflow_versions", "changed_fields", "JSON")
+        # execution_logs table
+        _add_column_if_missing(conn, "execution_logs", "updated_at",    "DATETIME")
         conn.commit()
 
 

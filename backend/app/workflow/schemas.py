@@ -23,7 +23,7 @@ class WorkflowDefinition(BaseModel):
     name: str
     trigger: TriggerSchema
     steps: list[StepSchema]
-    explanation: str
+    explanation: str = ""
 
 
 class CreateWorkflowRequest(BaseModel):

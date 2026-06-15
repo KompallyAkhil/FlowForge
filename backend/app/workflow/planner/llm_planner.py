@@ -124,7 +124,11 @@ def _parse_llm_output(raw: str) -> WorkflowDefinition:
                     f"{integration}.{step['action']} — routed as generic step"
                 )
 
-    return WorkflowDefinition(**data)
+    from pydantic import ValidationError
+    try:
+        return WorkflowDefinition(**data)
+    except ValidationError as exc:
+        raise ValueError(f"LLM output failed schema validation: {exc}") from exc
 
 
 async def _call_openrouter(natural_language: str) -> WorkflowDefinition:
