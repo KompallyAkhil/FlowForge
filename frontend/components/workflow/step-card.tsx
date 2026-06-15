@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import type { WorkflowStep, ExecutionLog } from "@/lib/types"
-import { C, statusColor, calcDuration } from "@/lib/utils"
+import { statusColor, calcDuration } from "@/lib/utils"
 import { IntChip } from "@/components/ui/int-chip"
 import { Badge } from "@/components/ui/badge"
 import { LiveDot } from "@/components/ui/dot"
@@ -24,58 +24,68 @@ interface StepCardProps {
 
 export function StepCard({ step, index, stepStatus, log, allStepLogs, onEdit, onDelete, onMoveUp, onMoveDown, runningElapsed }: StepCardProps) {
   const [open, setOpen] = useState(false)
-  const st = stepStatus ?? "pending"
+  const st  = stepStatus ?? "pending"
   const col = statusColor(st)
   const agentFixed = allStepLogs && allStepLogs.length > 1 && log?.status === "success"
 
+  const borderColor =
+    st === "running" ? "rgba(59,130,246,0.3)"  :
+    st === "success" ? "rgba(34,197,94,0.18)"  :
+    st === "failed"  ? "rgba(239,68,68,0.22)"  :
+    "rgba(255,255,255,0.08)"
+
   return (
     <div
-      className="anim-fade"
-      style={{
-        background: C.surface,
-        border: `1px solid ${st === "running" ? C.info + "44" : C.border}`,
-        borderRadius: 10,
-        overflow: "hidden",
-        boxShadow: st === "running" ? `0 0 0 2px ${C.info}14` : "none",
-        transition: "border-color .25s, box-shadow .25s",
-      }}
+      className="anim-fade rounded-xl overflow-hidden transition-all duration-200"
+      style={{ background: "#18181b", border: `1px solid ${borderColor}` }}
     >
-      {/* Header row */}
+      {/* Header */}
       <div
-        style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", cursor: "pointer" }}
+        className="flex items-center gap-3 px-4 py-3.5 cursor-pointer transition-colors duration-150 hover:bg-white/[0.02]"
         onClick={() => setOpen(x => !x)}
       >
+        {/* Step index */}
+        <span
+          className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-semibold shrink-0"
+          style={{ background: "rgba(255,255,255,0.05)", color: "#52525b" }}
+        >
+          {index + 1}
+        </span>
+
         <IntChip name={step.integration} />
 
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            <span style={{ fontWeight: 500, fontSize: 13, color: C.text }}>
-              {index + 1}. {step.name}
-            </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-[13.5px] text-primary truncate">{step.name}</span>
             {st === "running" && <LiveDot />}
           </div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{step.action}</div>
+          <div className="text-[11.5px] text-muted mt-0.5 font-mono">
+            {step.integration}.{step.action}
+          </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <div className="flex items-center gap-2 shrink-0">
           {stepStatus && <Badge label={st} color={col} />}
 
           {agentFixed && (
-            <span style={{
-              fontSize: 10, fontWeight: 700, color: C.accentL,
-              background: C.accent + "18", border: `1px solid ${C.accent}33`,
-              borderRadius: 99, padding: "2px 8px",
-            }}>
+            <span
+              className="text-[10px] font-semibold rounded-md px-2 py-0.5"
+              style={{
+                color: "#818cf8",
+                background: "rgba(99,102,241,0.10)",
+                border: "1px solid rgba(99,102,241,0.18)",
+              }}
+            >
               ⚡ Agent fixed
             </span>
           )}
 
           {st === "running" && runningElapsed && (
-            <span style={{ fontSize: 11, color: C.info }}>{runningElapsed}</span>
+            <span className="text-[11px] text-info">{runningElapsed}</span>
           )}
 
           {log && st !== "running" && calcDuration(log.created_at, log.updated_at ?? log.created_at) && (
-            <span style={{ fontSize: 11, color: C.muted }}>
+            <span className="text-[11px] text-muted">
               {calcDuration(log.created_at, log.updated_at ?? log.created_at)}
             </span>
           )}
@@ -83,19 +93,7 @@ export function StepCard({ step, index, stepStatus, log, allStepLogs, onEdit, on
           {onEdit && (
             <button
               onClick={e => { e.stopPropagation(); onEdit(step) }}
-              style={{
-                background: "none", border: `1px solid ${C.border2}`, color: C.muted,
-                borderRadius: 6, padding: "3px 10px", fontSize: 11, cursor: "pointer",
-                transition: "color .12s, border-color .12s",
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.color = C.text
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor = C.subtle
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.color = C.muted
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor = C.border2
-              }}
+              className="bg-transparent border border-white/8 text-muted rounded-md px-2.5 py-0.5 text-[11px] cursor-pointer transition-all duration-150 hover:bg-white/5 hover:text-primary hover:border-white/15"
             >
               Edit
             </button>
@@ -105,19 +103,7 @@ export function StepCard({ step, index, stepStatus, log, allStepLogs, onEdit, on
             <button
               onClick={e => { e.stopPropagation(); onMoveUp() }}
               title="Move up"
-              style={{
-                background: "none", border: `1px solid ${C.border2}`, color: C.muted,
-                borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer",
-                transition: "color .12s, border-color .12s", lineHeight: 1,
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.color = C.text
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor = C.subtle
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.color = C.muted
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor = C.border2
-              }}
+              className="bg-transparent border border-white/8 text-muted rounded-md w-6 h-6 flex items-center justify-center text-[11px] cursor-pointer transition-all duration-150 hover:bg-white/5 hover:text-primary hover:border-white/15"
             >↑</button>
           )}
 
@@ -125,19 +111,7 @@ export function StepCard({ step, index, stepStatus, log, allStepLogs, onEdit, on
             <button
               onClick={e => { e.stopPropagation(); onMoveDown() }}
               title="Move down"
-              style={{
-                background: "none", border: `1px solid ${C.border2}`, color: C.muted,
-                borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer",
-                transition: "color .12s, border-color .12s", lineHeight: 1,
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.color = C.text
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor = C.subtle
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.color = C.muted
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor = C.border2
-              }}
+              className="bg-transparent border border-white/8 text-muted rounded-md w-6 h-6 flex items-center justify-center text-[11px] cursor-pointer transition-all duration-150 hover:bg-white/5 hover:text-primary hover:border-white/15"
             >↓</button>
           )}
 
@@ -145,53 +119,38 @@ export function StepCard({ step, index, stepStatus, log, allStepLogs, onEdit, on
             <button
               onClick={e => { e.stopPropagation(); onDelete() }}
               title="Remove step"
-              style={{
-                background: "none", border: `1px solid ${C.danger}44`, color: C.danger,
-                borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer",
-                transition: "background .12s, border-color .12s", lineHeight: 1,
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = C.danger + "15"
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor = C.danger + "88"
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = "none"
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor = C.danger + "44"
-              }}
+              className="bg-transparent border border-danger/20 text-danger rounded-md w-6 h-6 flex items-center justify-center text-[11px] cursor-pointer transition-all duration-150 hover:bg-danger/10 hover:border-danger/40"
             >×</button>
           )}
 
-          <span style={{ color: C.subtle, fontSize: 10, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }}>
-            ▼
+          <span
+            className="text-subtle text-[10px] transition-transform duration-200 ml-0.5"
+            style={{ transform: open ? "rotate(180deg)" : "none", display: "inline-block" }}
+          >
+            ▾
           </span>
         </div>
       </div>
 
-      {/* Expanded details */}
+      {/* Expanded */}
       {open && (
-        <div
-          className="anim-slide"
-          style={{ padding: "0 16px 14px", display: "flex", flexDirection: "column", gap: 10 }}
-        >
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-            <div style={{ fontSize: 10, color: C.muted, marginBottom: 6, fontWeight: 700, letterSpacing: "0.08em" }}>PARAMS</div>
+        <div className="anim-slide px-4 pb-4 flex flex-col gap-3">
+          <div className="border-t border-white/[0.06] pt-3">
+            <div className="text-[10.5px] text-muted mb-2 font-semibold tracking-[0.1em] uppercase">Parameters</div>
             <pre className="code-block">{JSON.stringify(step.params, null, 2)}</pre>
           </div>
 
           {st === "skipped" && Boolean(log?.output_data?.reason) && (
-            <div style={{
-              background: C.warning + "0c", border: `1px solid ${C.warning}33`,
-              borderRadius: 8, padding: "10px 14px",
-            }}>
-              <div style={{ fontSize: 11, color: C.warning, fontWeight: 600, marginBottom: 4 }}>SKIPPED — No upstream results</div>
-              <div style={{ fontSize: 12, color: C.warning + "cc" }}>{String(log?.output_data?.reason ?? "")}</div>
+            <div className="rounded-lg px-3.5 py-2.5" style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)" }}>
+              <div className="text-[11px] text-warning font-semibold mb-1">Skipped — no upstream results</div>
+              <div className="text-[12px] text-warning/80">{String(log?.output_data?.reason ?? "")}</div>
             </div>
           )}
 
           {st !== "skipped" && log?.output_data && Object.keys(log.output_data).length > 0 && (
             <div>
-              <div style={{ fontSize: 10, color: C.success, marginBottom: 6, fontWeight: 700, letterSpacing: "0.08em" }}>OUTPUT</div>
-              <pre className="code-block" style={{ color: C.success + "cc" }}>
+              <div className="text-[10.5px] text-success mb-2 font-semibold tracking-[0.1em] uppercase">Output</div>
+              <pre className="code-block" style={{ color: "rgba(34,197,94,0.85)" }}>
                 {JSON.stringify(log.output_data, null, 2)}
               </pre>
             </div>
@@ -199,16 +158,12 @@ export function StepCard({ step, index, stepStatus, log, allStepLogs, onEdit, on
 
           {log?.error && (
             <div>
-              <div style={{ fontSize: 10, color: C.danger, marginBottom: 6, fontWeight: 700, letterSpacing: "0.08em" }}>
-                ERROR{log.retry_count > 0 ? ` (${log.retry_count} retries)` : ""}
+              <div className="text-[10.5px] text-danger mb-2 font-semibold tracking-[0.1em] uppercase">
+                Error{log.retry_count > 0 ? ` · ${log.retry_count} retr${log.retry_count === 1 ? "y" : "ies"}` : ""}
               </div>
-              <div style={{
-                background: C.danger + "0c", border: `1px solid ${C.danger}33`,
-                borderRadius: 8, padding: "10px 14px",
-                color: C.danger, fontSize: 12,
-                fontFamily: "ui-monospace, 'Cascadia Code', monospace",
-                lineHeight: 1.5,
-              }}>
+              <div className="rounded-lg px-3.5 py-2.5 text-danger text-[12px] font-mono leading-relaxed"
+                style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.18)" }}
+              >
                 {log.error}
               </div>
             </div>

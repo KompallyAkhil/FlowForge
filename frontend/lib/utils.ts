@@ -20,37 +20,40 @@ export function fmtDate(d: string): string {
 
 export function statusColor(s: string): string {
   const m: Record<string, string> = {
-    success: "#10b981", completed: "#10b981",
-    running: "#3b82f6",
-    pending: "#3a3a50",
-    failed: "#f43f5e",
-    paused: "#f59e0b", skipped: "#f59e0b",
+    success:   "#22c55e",
+    completed: "#22c55e",
+    running:   "#3b82f6",
+    pending:   "#3f3f46",
+    failed:    "#ef4444",
+    paused:    "#f59e0b",
+    skipped:   "#f59e0b",
   }
-  return m[s] ?? "#6b7280"
+  return m[s] ?? "#52525b"
 }
 
-// Shared design tokens — hex values so opacity suffixes work (e.g. C.accent + "1a")
+// Shared design tokens
 export const C = {
-  canvas:   "#09090f",
-  sidebar:  "#0d0d16",
-  surface:  "#12121c",
-  elevated: "#1a1a2e",
-  border:   "#1e1e30",
-  border2:  "#252538",
-  accent:   "#6d28d9",
-  accentL:  "#8b5cf6",
-  text:     "#ededf0",
-  muted:    "#6b7280",
-  subtle:   "#3a3a50",
-  success:  "#10b981",
+  canvas:   "#09090b",
+  sidebar:  "#0d0d0f",
+  surface:  "#18181b",
+  elevated: "#27272a",
+  border:   "rgba(255,255,255,0.08)",
+  border2:  "rgba(255,255,255,0.14)",
+  accent:   "#6366f1",
+  accentL:  "#818cf8",
+  text:     "#fafafa",
+  muted:    "#a1a1aa",
+  subtle:   "#52525b",
+  success:  "#22c55e",
   warning:  "#f59e0b",
-  danger:   "#f43f5e",
+  danger:   "#ef4444",
   info:     "#3b82f6",
 } as const
 
 export const INT_COLOR: Record<string, string> = {
-  gmail:  "#ea4335",
-  slack:  "#7b4eb8",
-  sheets: "#0f9d58",
-  ai:     "#8b5cf6",
+  gmail:   "#ea4335",
+  slack:   "#7b4eb8",
+  sheets:  "#0f9d58",
+  ai:      "#6366f1",
+  generic: "#3b82f6",
 }

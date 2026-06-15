@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from app.core.config import get_settings
 
@@ -41,7 +41,7 @@ def _migrate_schema() -> None:
 
 
 def _add_column_if_missing(conn, table: str, column: str, col_def: str) -> None:
-    result = conn.execute(__import__("sqlalchemy").text(f"PRAGMA table_info({table})"))
+    result = conn.execute(text(f"PRAGMA table_info({table})"))
     existing = {row[1] for row in result}
     if column not in existing:
-        conn.execute(__import__("sqlalchemy").text(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"))
+        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"))

@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import type { Workflow } from "@/lib/types"
-import { C } from "@/lib/utils"
 import { Spinner } from "@/components/ui/spinner"
 import * as api from "@/lib/api"
 
@@ -51,75 +50,64 @@ export function SchedulePanel({ workflow, onUpdated }: SchedulePanelProps) {
   }
 
   return (
-    <div style={{
-      background: enabled ? C.success + "08" : C.surface,
-      border: `1px solid ${enabled ? C.success + "33" : C.border2}`,
-      borderRadius: 10, padding: "16px 20px",
-      display: "flex", flexDirection: "column", gap: 12,
-      transition: "background .2s, border-color .2s",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 4 }}>
-            SCHEDULE
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 13, color: C.text, fontWeight: 600 }}>
+    <div
+      className="glass-card-static rounded-xl p-5 flex flex-col gap-3 transition-colors duration-200"
+      style={{ borderColor: enabled ? "rgba(34,197,94,0.22)" : undefined }}
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex-1">
+          <div className="text-[10.5px] text-muted font-semibold tracking-[0.1em] uppercase mb-1.5">Schedule</div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[13px] text-primary font-medium">
               {cronExpr || "—"}
             </span>
-            {cronExpr && <span style={{ fontSize: 11, color: C.muted }}>cron expression</span>}
+            {cronExpr && <span className="text-[11px] text-subtle">cron</span>}
           </div>
         </div>
 
         <button
           onClick={toggle}
           disabled={busy || !cronExpr}
-          title={!cronExpr ? "No cron expression in trigger" : ""}
-          style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "7px 14px", borderRadius: 8,
-            cursor: busy || !cronExpr ? "not-allowed" : "pointer",
-            background: enabled ? C.success + "20" : C.border2 + "80",
-            border: `1px solid ${enabled ? C.success + "44" : C.border2}`,
-            color: enabled ? C.success : C.muted,
-            fontSize: 12, fontWeight: 600,
-            transition: "all .15s",
-            opacity: busy || !cronExpr ? 0.5 : 1,
-          }}
+          title={!cronExpr ? "No cron expression in trigger" : undefined}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-all duration-150 cursor-pointer ${
+            busy || !cronExpr ? "opacity-40 cursor-not-allowed!" : ""
+          } ${
+            enabled
+              ? "border-success/25 text-success bg-success/8"
+              : "border-white/10 text-muted bg-white/[0.04]"
+          }`}
         >
-          {busy ? <Spinner size={12} /> : (
-            <span style={{
-              width: 28, height: 16, borderRadius: 99, position: "relative", display: "inline-block",
-              background: enabled ? C.success : C.subtle, transition: "background .15s", flexShrink: 0,
-            }}>
-              <span style={{
-                position: "absolute", top: 2, left: enabled ? 14 : 2,
-                width: 12, height: 12, borderRadius: "50%", background: "#fff",
-                transition: "left .15s",
-              }} />
+          {busy ? (
+            <Spinner size={12} />
+          ) : (
+            <span
+              className="relative inline-block w-7 h-4 rounded-full transition-colors duration-200 shrink-0"
+              style={{ background: enabled ? "#22c55e" : "rgba(63,63,70,0.8)" }}
+            >
+              <span
+                className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-[left] duration-200"
+                style={{ left: enabled ? 14 : 2 }}
+              />
             </span>
           )}
           {enabled ? "Enabled" : "Disabled"}
         </button>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ fontSize: 11, color: C.muted, whiteSpace: "nowrap" }}>Timezone:</div>
+      <div className="flex items-center gap-2.5">
+        <span className="text-[12px] text-muted whitespace-nowrap">Timezone</span>
         <select
           value={tz}
           onChange={e => handleTzChange(e.target.value)}
           disabled={busy}
-          style={{
-            background: C.canvas, border: `1px solid ${C.border2}`, borderRadius: 6,
-            color: C.text, fontSize: 12, padding: "5px 8px", cursor: "pointer", flex: 1,
-          }}
+          className="glass-input flex-1 text-[12.5px] px-2.5 py-1.5 cursor-pointer rounded-md"
         >
           {TIMEZONES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
       </div>
 
       {workflow.next_run && (
-        <div style={{ fontSize: 12, color: enabled ? C.success : C.muted }}>
+        <div className={`text-[12px] ${enabled ? "text-success" : "text-muted"}`}>
           Next run: {new Date(workflow.next_run).toLocaleString(undefined, {
             month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
           })}
@@ -127,13 +115,13 @@ export function SchedulePanel({ workflow, onUpdated }: SchedulePanelProps) {
       )}
 
       {!cronExpr && (
-        <div style={{ fontSize: 11, color: C.warning, lineHeight: 1.55 }}>
+        <p className="text-[12px] text-warning leading-relaxed">
           No cron expression found. Re-plan this workflow with a schedule description
           (e.g. "every morning at 7 AM") to enable scheduling.
-        </div>
+        </p>
       )}
 
-      {err && <div style={{ fontSize: 12, color: C.danger }}>{err}</div>}
+      {err && <div className="text-[12px] text-danger">{err}</div>}
     </div>
   )
 }

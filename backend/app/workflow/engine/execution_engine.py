@@ -268,7 +268,8 @@ def _assert_no_unresolved_refs(params: dict, step_name: str) -> None:
     they silently write a literal placeholder string into Gmail, Slack, or Sheets.
     """
     params_str = json.dumps(params)
-    unresolved = re.findall(r'\$\{([^}]+)\}', params_str)
+    # Only flag ${step_N.field} patterns — not generic ${variable} in email/text content.
+    unresolved = re.findall(r'\$\{(step_[^}]+)\}', params_str)
     if unresolved:
         raise ValueError(
             f"Step '{step_name}' has unresolved output references: "

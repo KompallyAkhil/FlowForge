@@ -129,7 +129,16 @@ async def chat_with_execution(
     messages = [{"role": m.role, "content": m.content} for m in req.history]
     messages.append({"role": "user", "content": req.message})
 
-    if s.ai_provider == "groq":
+    if s.ai_provider == "openrouter":
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=s.openrouter_api_key, base_url=s.openrouter_base_url)
+        resp = await client.chat.completions.create(
+            model=s.openrouter_model,
+            max_tokens=1024,
+            messages=[{"role": "system", "content": system_prompt}] + messages,
+        )
+        reply = resp.choices[0].message.content or ""
+    elif s.ai_provider == "groq":
         from groq import AsyncGroq
         client = AsyncGroq(api_key=s.groq_api_key)
         resp = await client.chat.completions.create(

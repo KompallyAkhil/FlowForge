@@ -16,11 +16,10 @@ from app.workflow.schemas import (
     WorkflowVersionResponse,
     ExecutionResponse,
     ExecuteRequest,
-    WorkflowChatRequest,
-    WorkflowChatResponse,
 )
-from app.workflow.planner import plan_workflow, chat_modify_workflow
+from app.workflow.planner import plan_workflow
 from app.workflow.engine import workflow_engine, execution_engine
+from app.workflow.engine.workflow_engine import save_step_version
 from app.scheduler import (
     register_workflow_schedule,
     unschedule_workflow,
@@ -212,10 +211,7 @@ def add_step(
     db.commit()
     db.refresh(wf)
 
-    # Save version snapshot
-    from app.workflow.engine.workflow_engine import _save_version
-    _save_version(db, wf, f"Added step '{req.name}'", None)
-
+    save_step_version(db, wf, f"Added step '{req.name}'")
     return _enrich(wf)
 
 
@@ -259,9 +255,7 @@ def update_step(
     db.commit()
     db.refresh(wf)
 
-    from app.workflow.engine.workflow_engine import _save_version
-    _save_version(db, wf, f"Updated step '{step['name']}'", None)
-
+    save_step_version(db, wf, f"Updated step '{step['name']}'")
     return _enrich(wf)
 
 
@@ -291,30 +285,32 @@ def delete_step(
     db.commit()
     db.refresh(wf)
 
-    from app.workflow.engine.workflow_engine import _save_version
-    _save_version(db, wf, f"Removed step '{step['name']}'", None)
-
+    save_step_version(db, wf, f"Removed step '{step['name']}'")
     return _enrich(wf)
 
 
-# ── Workflow chat — extend / modify via natural language ──────────────────────
+# ── Re-plan with AI ──────────────────────────────────────────────────────────
 
-@router.post("/{workflow_id}/chat", response_model=WorkflowChatResponse)
-async def chat_workflow(
-    workflow_id: str,
-    req: WorkflowChatRequest,
-    db: Session = Depends(get_db),
-):
-    """Accept a natural language instruction and return an updated workflow JSON preview.
+@router.post("/{workflow_id}/replan", response_model=WorkflowResponse)
+async def replan_workflow(workflow_id: str, db: Session = Depends(get_db)):
+    """Re-invoke the LLM planner with the workflow's original natural language input.
 
-    Does NOT save the workflow — the caller decides whether to apply the result.
+    Replaces the current steps/trigger/explanation with a freshly generated plan,
+    saves a new version snapshot, and resets status to draft for re-review.
     """
     wf = _get_or_404(db, workflow_id)
     try:
-        reply, updated_def = await chat_modify_workflow(wf.workflow_json or {}, req.message)
+        definition = await plan_workflow(wf.original_input)
+        updated = workflow_engine.update_workflow(db, workflow_id, wf.name, definition)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    return WorkflowChatResponse(reply=reply, workflow_json=updated_def.model_dump())
+    if not updated:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    updated.status = "draft"
+    updated.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(updated)
+    return _enrich(updated)
 
 
 # ── Execute directly (bypasses review) ───────────────────────────────────────

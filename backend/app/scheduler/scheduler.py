@@ -11,7 +11,6 @@ On startup, all schedule_enabled workflows are re-registered from the DB.
 import logging
 import re
 from datetime import datetime
-from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.memory import MemoryJobStore

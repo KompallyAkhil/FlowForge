@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import type { Workflow, WorkflowStep, WorkflowJson } from "@/lib/types"
-import { C } from "@/lib/utils"
 import { Btn } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { StepCard } from "./step-card"
@@ -12,18 +11,20 @@ import * as api from "@/lib/api"
 
 interface ReviewViewProps {
   workflow: Workflow
-  onApprove: () => void
+  onApprove: (saved: Workflow) => void
   onSaveOnly?: (updated: Workflow) => void
   onBack: () => void
   onWorkflowUpdated?: (updated: Workflow) => void
+  onReplanned?: (updated: Workflow) => void
 }
 
-export function ReviewView({ workflow, onApprove, onSaveOnly, onBack, onWorkflowUpdated }: ReviewViewProps) {
+export function ReviewView({ workflow, onApprove, onSaveOnly, onBack, onWorkflowUpdated, onReplanned }: ReviewViewProps) {
   const [name, setName]         = useState(workflow.name)
   const [steps, setSteps]       = useState<WorkflowStep[]>(workflow.workflow_json.steps)
   const [editing, setEditing]   = useState<WorkflowStep | null>(null)
   const [addingStep, setAdding] = useState(false)
   const [saving, setSaving]     = useState(false)
+  const [replanning, setReplanning] = useState(false)
   const [err, setErr]           = useState("")
   const [liveWf, setLiveWf]     = useState(workflow)
 
@@ -72,7 +73,9 @@ export function ReviewView({ workflow, onApprove, onSaveOnly, onBack, onWorkflow
 
   async function handleSaveAndExecute() {
     const saved = await doSave()
-    if (saved) onApprove()
+    if (!saved) return
+    onWorkflowUpdated?.(saved)
+    onApprove(saved)
   }
 
   function handleScheduleUpdated(updated: Workflow) {
@@ -80,59 +83,69 @@ export function ReviewView({ workflow, onApprove, onSaveOnly, onBack, onWorkflow
     onWorkflowUpdated?.(updated)
   }
 
+  async function handleReplan() {
+    setReplanning(true); setErr("")
+    try {
+      const updated = await api.replanWorkflow(workflow.id)
+      onWorkflowUpdated?.(updated)
+      onReplanned?.(updated)
+    } catch (e) {
+      setErr(`Re-plan failed: ${String(e)}`)
+    } finally {
+      setReplanning(false)
+    }
+  }
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="flex flex-col gap-4">
       {editing && (
-        <StepEditor
-          step={editing}
-          onSave={updateStep}
-          onClose={() => setEditing(null)}
-        />
+        <StepEditor step={editing} onSave={updateStep} onClose={() => setEditing(null)} />
       )}
-
       {addingStep && (
-        <StepEditor
-          onSave={addStep}
-          onClose={() => setAdding(false)}
-        />
+        <StepEditor onSave={addStep} onClose={() => setAdding(false)} />
       )}
 
-      {/* Plan header card */}
-      <div style={{
-        background: C.accent + "0e",
-        border: `1px solid ${C.accent}30`,
-        borderRadius: 10, padding: "16px 20px",
-        display: "flex", flexDirection: "column", gap: 12,
-      }}>
-        <div>
-          <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 6 }}>
-            WORKFLOW NAME
-          </div>
+      {/* Plan header */}
+      <div className="glass-card-static p-5 rounded-2xl"
+        style={{ borderColor: "rgba(99,102,241,0.18)" }}
+      >
+        <div className="mb-3">
+          <label className="text-[10.5px] text-muted font-semibold tracking-[0.1em] uppercase mb-1.5 block">
+            Workflow Name
+          </label>
           <input
             value={name}
             onChange={e => setName(e.target.value)}
-            style={{
-              width: "100%", background: C.canvas,
-              border: `1px solid ${C.border2}`, borderRadius: 7,
-              color: C.text, fontSize: 14, fontWeight: 600,
-              padding: "7px 12px", fontFamily: "inherit",
-              transition: "border-color .15s",
-            }}
-            onFocus={e => (e.target.style.borderColor = C.accent + "66")}
-            onBlur={e => (e.target.style.borderColor = C.border2)}
+            className="glass-input w-full text-primary text-[14px] font-medium px-3.5 py-2.5 rounded-lg"
           />
         </div>
-        <div style={{ fontSize: 13, color: "#a78bfa", lineHeight: 1.65 }}>
-          {workflow.workflow_json.explanation}
-        </div>
-        <div style={{ fontSize: 11, color: C.muted }}>
-          {steps.length} step{steps.length !== 1 ? "s" : ""} ·
-          Click any step to expand · Edit name, integration, action or params · Reorder or remove steps
+
+        {workflow.workflow_json.explanation && (
+          <p className="text-[13px] text-muted leading-relaxed">
+            {workflow.workflow_json.explanation}
+          </p>
+        )}
+
+        <div className="flex items-center justify-between flex-wrap gap-2 mt-3 pt-3 border-t border-white/[0.06]">
+          <span className="text-[12px] text-subtle">
+            {steps.length} step{steps.length !== 1 ? "s" : ""} · click any step to expand
+          </span>
+          <button
+            onClick={handleReplan}
+            disabled={replanning || saving}
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[12px] font-medium border transition-all duration-150 cursor-pointer ${
+              replanning || saving
+                ? "border-white/5 text-subtle cursor-not-allowed opacity-50"
+                : "border-accent/25 text-accent-l hover:border-accent/40 hover:bg-accent/5"
+            }`}
+          >
+            {replanning ? <><Spinner size={10} /> Re-planning…</> : "↺ Re-plan"}
+          </button>
         </div>
       </div>
 
-      {/* Steps list with reorder / delete controls */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {/* Steps */}
+      <div className="flex flex-col gap-2">
         {steps.map((step, i) => (
           <StepCard
             key={step.id}
@@ -149,29 +162,10 @@ export function ReviewView({ workflow, onApprove, onSaveOnly, onBack, onWorkflow
       {/* Add step */}
       <button
         onClick={() => setAdding(true)}
-        style={{
-          background: "transparent",
-          border: `1px dashed ${C.border2}`,
-          borderRadius: 10,
-          color: C.muted,
-          fontSize: 13,
-          padding: "12px 16px",
-          cursor: "pointer",
-          textAlign: "center",
-          transition: "border-color .15s, color .15s",
-          width: "100%",
-          fontFamily: "inherit",
-        }}
-        onMouseEnter={e => {
-          (e.currentTarget as HTMLButtonElement).style.borderColor = C.accent + "66"
-          ;(e.currentTarget as HTMLButtonElement).style.color = C.accentL
-        }}
-        onMouseLeave={e => {
-          (e.currentTarget as HTMLButtonElement).style.borderColor = C.border2
-          ;(e.currentTarget as HTMLButtonElement).style.color = C.muted
-        }}
+        className="w-full bg-transparent rounded-xl text-muted text-[13px] py-3 px-4 cursor-pointer text-center transition-all duration-150 hover:bg-white/[0.03] hover:text-primary"
+        style={{ border: "1px dashed rgba(255,255,255,0.09)" }}
       >
-        + Add Step
+        + Add step
       </button>
 
       {isSchedule && (
@@ -179,28 +173,28 @@ export function ReviewView({ workflow, onApprove, onSaveOnly, onBack, onWorkflow
       )}
 
       {err && (
-        <div style={{
-          background: C.danger + "0c", border: `1px solid ${C.danger}33`,
-          borderRadius: 8, padding: "10px 16px", color: C.danger, fontSize: 12,
-        }}>
+        <div className="rounded-lg px-4 py-2.5 text-danger text-[12.5px]"
+          style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.18)" }}
+        >
           {err}
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 4 }}>
-        <Btn variant="ghost" onClick={onBack} disabled={saving}>← Back</Btn>
+      {/* Actions */}
+      <div className="flex gap-2 justify-end pt-1">
+        <Btn variant="ghost" onClick={onBack} disabled={saving}>Back</Btn>
         {onSaveOnly && (
           <Btn variant="ghost" onClick={handleSaveOnly} disabled={saving}>
-            {saving ? <><Spinner /> Saving…</> : "Save Changes"}
+            {saving ? <><Spinner /> Saving…</> : "Save"}
           </Btn>
         )}
         {!isSchedule && (
-          <Btn onClick={handleSaveAndExecute} disabled={saving} style={{ minWidth: 180 }}>
-            {saving ? <><Spinner /> Saving…</> : "▶ Approve & Execute"}
+          <Btn onClick={handleSaveAndExecute} disabled={saving} style={{ minWidth: 160 }}>
+            {saving ? <><Spinner /> Saving…</> : "Approve & Run →"}
           </Btn>
         )}
         {isSchedule && (
-          <Btn variant="ghost" onClick={handleSaveAndExecute} disabled={saving} style={{ minWidth: 180 }}>
+          <Btn variant="ghost" onClick={handleSaveAndExecute} disabled={saving} style={{ minWidth: 160 }}>
             {saving ? <><Spinner /> Saving…</> : "Save & Run Now"}
           </Btn>
         )}

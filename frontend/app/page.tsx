@@ -10,7 +10,6 @@ import { DoneView } from "@/components/workflow/done-view"
 import { HistoryPanel } from "@/components/workflow/history-panel"
 import { VersionHistoryPanel } from "@/components/workflow/version-history-panel"
 import { IntegrationSetup } from "@/components/workflow/integration-setup"
-import { WorkflowChatPanel } from "@/components/workflow/workflow-chat"
 import * as api from "@/lib/api"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -30,10 +29,9 @@ const EXAMPLE_PROMPTS = [
 ]
 
 const INTEGRATIONS = [
-  { name: "Gmail",  icon: "✉️",  desc: "Read, search & send emails",      color: "#ea4335" },
-  { name: "Slack",  icon: "💬",  desc: "Send messages & manage channels", color: "#7b4eb8" },
-  { name: "Sheets", icon: "📊",  desc: "Read, write & search rows",        color: "#0f9d58" },
-  
+  { name: "Gmail",  color: "#ea4335" },
+  { name: "Slack",  color: "#7b4eb8" },
+  { name: "Sheets", color: "#0f9d58" },
 ]
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -57,9 +55,7 @@ function Sidebar({
   function armConfirm(e: React.MouseEvent, wf: Workflow) {
     e.stopPropagation()
     if (timerRef.current) clearTimeout(timerRef.current)
-
     if (confirmingId === wf.id) {
-      // Second click — confirmed
       setConfirmingId(null)
       setDeletingId(wf.id)
       onDelete(wf).finally(() => setDeletingId(null))
@@ -70,89 +66,93 @@ function Sidebar({
   }
 
   return (
-    <aside className="w-64 shrink-0 bg-sidebar border-r border-border flex flex-col h-screen sticky top-0">
-      {/* ── Brand ── */}
-      <div className="px-4 pt-5 pb-4 border-b border-border">
+    <aside className="w-60 shrink-0 sidebar-glass flex flex-col h-screen sticky top-0">
+      {/* Brand */}
+      <div className="px-5 pt-5 pb-4 border-b border-white/[0.06]">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-linear-to-br from-violet-700 to-violet-500 flex items-center justify-center text-white text-base font-black shrink-0 shadow-lg shadow-violet-500/25">
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold shrink-0"
+            style={{ background: "#6366f1" }}
+          >
             F
           </div>
           <div>
-            <div className="text-sm font-bold text-primary leading-none">FlowForge</div>
-            <div className="text-[10px] text-muted tracking-[0.12em] mt-1">AI AUTOMATION</div>
+            <div className="text-[14px] font-semibold text-primary leading-none">FlowForge</div>
+            <div className="text-[11px] text-subtle mt-0.5 leading-none">AI Automation</div>
           </div>
         </div>
       </div>
 
-      {/* ── Workflows list ── */}
-      <div className="flex flex-col flex-1 min-h-0">
-        <div className="p-3 border-b border-border">
-          <button
-            onClick={onNewWorkflow}
-            className="btn-gradient w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-white text-[13px] font-semibold border-0 cursor-pointer"
-          >
-            <span className="text-base leading-none">✦</span>
-            New Workflow
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2.5">
-          <div className="text-[9px] font-bold tracking-[0.14em] text-subtle px-2 pt-1 pb-2">
-            WORKFLOWS
-          </div>
-          {sideLoading ? (
-            <div className="flex items-center gap-2 text-muted text-xs px-2 py-3">
-              <Spinner size={11} /> Loading…
-            </div>
-          ) : workflows.length === 0 ? (
-            <div className="text-xs text-subtle px-2 py-5 leading-relaxed">
-              No workflows yet.
-              <br />
-              <span className="text-subtle/50 text-[11px]">Create your first one above.</span>
-            </div>
-          ) : (
-            workflows.map(wf => {
-              const isConfirming = confirmingId === wf.id
-              const isDeleting   = deletingId   === wf.id
-              return (
-                <div key={wf.id} className="group relative">
-                  <button
-                    onClick={() => !isDeleting && onSelectWorkflow(wf)}
-                    className={`nav-item w-full pr-7 ${selected?.id === wf.id ? "active" : ""} ${isConfirming ? "text-red-400!" : ""}`}
-                  >
-                    <span className="flex-1 truncate text-left text-[12px]">
-                      {isDeleting ? "Deleting…" : wf.name}
-                    </span>
-                    {wf.schedule_enabled && !isConfirming && (
-                      <span className="text-[10px] text-emerald-400 shrink-0">⏱</span>
-                    )}
-                  </button>
+      {/* New Workflow */}
+      <div className="px-3 pt-3 pb-3 border-b border-white/[0.06]">
+        <button
+          onClick={onNewWorkflow}
+          className="btn-gradient w-full flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-white text-[13px] font-medium border-0 cursor-pointer"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          New Workflow
+        </button>
+      </div>
 
-                  {/* Delete button — visible on hover, or always visible when confirming */}
-                  <button
-                    onClick={e => armConfirm(e, wf)}
-                    title={isConfirming ? "Click again to confirm delete" : "Delete workflow"}
-                    className={[
-                      "absolute right-1.5 top-1/2 -translate-y-1/2",
-                      "w-5 h-5 rounded flex items-center justify-center",
-                      "text-[11px] font-bold transition-all duration-100 border-0 cursor-pointer",
-                      isConfirming
-                        ? "bg-red-500/15 text-red-400 opacity-100"
-                        : "bg-transparent text-muted opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-400",
-                    ].join(" ")}
-                  >
-                    {isConfirming ? "?" : "×"}
-                  </button>
-                </div>
-              )
-            })
-          )}
+      {/* Workflow list */}
+      <div className="flex-1 overflow-y-auto p-2.5 min-h-0">
+        <div className="text-[10px] font-semibold tracking-[0.12em] text-subtle px-2 pt-1 pb-2 uppercase">
+          Workflows
         </div>
+        {sideLoading ? (
+          <div className="flex items-center gap-2 text-muted text-xs px-2 py-3">
+            <Spinner size={11} /> Loading…
+          </div>
+        ) : workflows.length === 0 ? (
+          <div className="px-2 py-4 text-[12px] text-subtle leading-relaxed">
+            No workflows yet.
+            <br />
+            <span className="text-subtle/60">Create one above.</span>
+          </div>
+        ) : (
+          workflows.map(wf => {
+            const isConfirming = confirmingId === wf.id
+            const isDeleting   = deletingId   === wf.id
+            return (
+              <div key={wf.id} className="group relative">
+                <button
+                  onClick={() => !isDeleting && onSelectWorkflow(wf)}
+                  className={`nav-item w-full pr-7 ${selected?.id === wf.id ? "active" : ""} ${isConfirming ? "!text-red-400" : ""}`}
+                >
+                  <span className="flex-1 truncate text-left text-[12.5px]">
+                    {isDeleting ? "Deleting…" : wf.name}
+                  </span>
+                  {wf.schedule_enabled && !isConfirming && (
+                    <span className="text-[9px] text-green-400 shrink-0">●</span>
+                  )}
+                </button>
+                <button
+                  onClick={e => armConfirm(e, wf)}
+                  title={isConfirming ? "Click again to confirm" : "Delete"}
+                  className={[
+                    "absolute right-1.5 top-1/2 -translate-y-1/2",
+                    "w-5 h-5 rounded flex items-center justify-center text-[11px] font-bold",
+                    "border-0 cursor-pointer transition-all duration-150",
+                    isConfirming
+                      ? "bg-red-500/15 text-red-400 opacity-100"
+                      : "bg-transparent text-muted opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-400",
+                  ].join(" ")}
+                >
+                  {isConfirming ? "?" : "×"}
+                </button>
+              </div>
+            )
+          })
+        )}
       </div>
     </aside>
   )
 }
 
-// ─── Workflows content ────────────────────────────────────────────────────────
+// ─── Main content ─────────────────────────────────────────────────────────────
 
 interface WorkflowsContentProps {
   selected: Workflow | null
@@ -176,62 +176,62 @@ interface WorkflowsContentProps {
   onResume: (id: string, wf: Workflow) => void
   onWorkflowUpdated: (wf: Workflow) => void
   onExecutionDone: (ex: Execution, logs: ExecutionLog[], wf: Workflow) => void
-  onRunNewSteps: (wf: Workflow, executionId: string) => void
   onChatReview: (wf: Workflow) => void
+  onReplan: (wf: Workflow) => void
 }
 
 function WorkflowsContent({
   selected, wfView, query, planning, planError, showHistory, showVersions,
   onQueryChange, onPlan, onToggleHistory, onToggleVersions, onEditSteps, onRun, onHistorySelect,
   onApprove, onSaveOnly, onBack, onRunAgain, onResume, onWorkflowUpdated, onExecutionDone,
-  onRunNewSteps, onChatReview,
+  onChatReview, onReplan,
 }: WorkflowsContentProps) {
-  const title = () => {
+
+  const pageTitle = () => {
     if (wfView.type === "review")    return "Review Plan"
     if (wfView.type === "executing") return "Executing"
     if (wfView.type === "done")
       return wfView.execution.status === "failed" ? "Execution Failed" : "Execution Complete"
     if (selected && showHistory)     return "Execution History"
     if (selected && showVersions)    return "Version History"
-    return selected ? selected.name : "New Workflow"
-  }
-  const subtitle = () => {
-    if (wfView.type === "review")    return wfView.workflow.name
-    if (wfView.type === "executing") return `${wfView.workflow.name} · Live`
-    if (wfView.type === "done")      return wfView.workflow.name
-    return null
+    return selected ? selected.name : null
   }
 
+  const title = pageTitle()
+
   return (
-    <div className="max-w-3xl mx-auto px-7 py-8 pb-20">
-      {/* Page header */}
-      <div className="mb-7">
-        <h1 className="text-xl font-bold text-primary m-0 leading-tight">{title()}</h1>
-        {subtitle() && (
-          <p className="text-[13px] text-muted mt-1 m-0">{subtitle()}</p>
-        )}
-      </div>
+    <div className="max-w-[760px] mx-auto px-8 py-8 pb-24 relative">
 
       {/* ── Review ── */}
       {wfView.type === "review" && (
-        <ReviewView
-          workflow={wfView.workflow}
-          onApprove={() => onApprove(wfView.workflow)}
-          onSaveOnly={onSaveOnly}
-          onBack={onBack}
-          onWorkflowUpdated={updated => {
-            onWorkflowUpdated(updated)
-          }}
-        />
+        <>
+          <PageHeader
+            title="Review Plan"
+            subtitle={wfView.workflow.name}
+            onBack={onBack}
+          />
+          <ReviewView
+            key={(wfView as Extract<WfView, { type: "review" }>).workflow.updated_at}
+            workflow={wfView.workflow}
+            onApprove={onApprove}
+            onSaveOnly={onSaveOnly}
+            onBack={onBack}
+            onWorkflowUpdated={onWorkflowUpdated}
+            onReplanned={updated => {
+              onWorkflowUpdated(updated)
+              onChatReview(updated)
+            }}
+          />
+        </>
       )}
 
       {/* ── Executing ── */}
       {wfView.type === "executing" && (
-        <div className="space-y-4">
-          <div className="bg-surface border border-border rounded-2xl p-4">
-            <div className="font-semibold text-[15px] text-primary">{wfView.workflow.name}</div>
-            <div className="text-xs text-muted mt-1">Live execution · auto-refreshing every 1.5s</div>
-          </div>
+        <>
+          <PageHeader
+            title={wfView.workflow.name}
+            subtitle="Live execution · refreshing every 1.5s"
+          />
           <ExecutionView
             executionId={wfView.executionId}
             workflow={wfView.workflow}
@@ -240,7 +240,7 @@ function WorkflowsContent({
               onExecutionDone(ex, logs, wf)
             }}
           />
-        </div>
+        </>
       )}
 
       {/* ── Done ── */}
@@ -257,151 +257,144 @@ function WorkflowsContent({
 
       {/* ── Create ── */}
       {wfView.type === "create" && (
-        <div className="space-y-6">
-          {/* Selected workflow banner */}
+        <div>
+          {/* Selected workflow action bar */}
           {selected && (
-            <div className="bg-surface border border-border2 rounded-2xl p-4 flex items-center gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-[14px] text-primary">{selected.name}</div>
-                <div className="text-xs text-muted mt-0.5 truncate">{selected.original_input}</div>
+            <div className="flex items-start justify-between gap-4 pb-6 mb-6 border-b border-white/[0.07]">
+              <div className="min-w-0">
+                <h1 className="text-[18px] font-semibold text-primary leading-snug">{selected.name}</h1>
+                <p className="text-[12.5px] text-muted mt-1 leading-relaxed truncate max-w-md">{selected.original_input}</p>
               </div>
-              <div className="flex gap-2 shrink-0">
+              <div className="flex gap-2 items-center shrink-0 flex-wrap justify-end">
                 <Btn small variant="ghost" onClick={onToggleHistory}>
                   {showHistory ? "← Back" : "History"}
                 </Btn>
                 <Btn small variant="ghost" onClick={onToggleVersions}>
                   {showVersions ? "← Back" : "Versions"}
                 </Btn>
-                <Btn small variant="ghost" onClick={onEditSteps}>✎ Edit Steps</Btn>
-                <Btn small onClick={onRun}>▶ Run</Btn>
+                <Btn small variant="ghost" onClick={onEditSteps}>Edit</Btn>
+                <Btn small variant="ghost" onClick={() => selected && onReplan(selected)}>Re-plan</Btn>
+                <Btn small onClick={onRun}>Run →</Btn>
               </div>
             </div>
           )}
 
           {/* History panel */}
           {selected && showHistory && (
-            <div className="bg-surface border border-border rounded-2xl p-5">
-              <div className="font-semibold text-primary mb-4">Execution History</div>
-              <HistoryPanel workflowId={selected.id} onSelect={onHistorySelect} />
+            <div>
+              <SectionHeading>Execution History</SectionHeading>
+              <div className="glass-card-static p-5 mt-3">
+                <HistoryPanel workflowId={selected.id} onSelect={onHistorySelect} />
+              </div>
             </div>
           )}
 
           {/* Version history panel */}
           {selected && showVersions && (
-            <div className="bg-surface border border-border rounded-2xl p-5">
-              <div className="font-semibold text-primary mb-1">Version History</div>
-              <div className="text-xs text-muted mb-4">
-                Every save creates a snapshot with a structured diff of what changed.
+            <div>
+              <SectionHeading>Version History</SectionHeading>
+              <p className="text-[12.5px] text-muted mt-1 mb-4 leading-relaxed">
+                Every save creates a snapshot with a diff of what changed.
+              </p>
+              <div className="glass-card-static p-5">
+                <VersionHistoryPanel workflowId={selected.id} />
               </div>
-              <VersionHistoryPanel workflowId={selected.id} />
             </div>
           )}
 
           {!showHistory && !showVersions && (
-            <>
-              {/* When a workflow is selected: show chat panel to continue building it */}
-              {selected ? (
-                <WorkflowChatPanel
-                  workflow={selected}
-                  onRunNewSteps={(updatedWf, executionId) => {
-                    onWorkflowUpdated(updatedWf)
-                    onRunNewSteps(updatedWf, executionId)
-                  }}
-                  onReview={updatedWf => {
-                    onWorkflowUpdated(updatedWf)
-                    onChatReview(updatedWf)
-                  }}
-                  onWorkflowUpdated={onWorkflowUpdated}
-                />
-              ) : (
-                <>
-                  {/* Heading */}
-                  <div>
-                    <h2 className="text-lg font-bold m-0 mb-1.5 leading-snug">
-                      <span className="gradient-text">What should I automate?</span>
-                    </h2>
-                    <p className="text-[13px] text-muted m-0 leading-relaxed">
-                      Describe your task in plain English — FlowForge will generate a
-                      step-by-step plan using your connected integrations.
-                    </p>
-                  </div>
-
-                  {/* Input box */}
-                  <div className="bg-surface border border-border2 rounded-2xl overflow-hidden focus-within:border-violet-500/50 focus-within:shadow-[0_0_0_3px_rgba(109,40,217,0.08)] transition-all duration-150">
-                    <textarea
-                      value={query}
-                      onChange={e => onQueryChange(e.target.value)}
-                      placeholder="e.g. Search for unread emails from boss@company.com, summarize them with AI, and post to #general on Slack"
-                      rows={4}
-                      className="w-full bg-transparent border-0 text-primary text-[13.5px] px-4 pt-4 pb-3 resize-none font-[inherit] leading-relaxed placeholder:text-subtle outline-none"
-                      onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onPlan() }}
-                    />
-                    <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-                      <span className="text-[11px] text-subtle">⌘↵ to generate</span>
-                      <button
-                        onClick={onPlan}
-                        disabled={planning || !query.trim()}
-                        className={`inline-flex items-center gap-2 px-5 py-2 rounded-xl text-[13px] font-semibold border-0 transition-all cursor-pointer ${
-                          planning || !query.trim()
-                            ? "bg-elevated text-subtle cursor-not-allowed"
-                            : "btn-gradient text-white"
-                        }`}
-                      >
-                        {planning
-                          ? <><Spinner size={12} /> Planning…</>
-                          : <><span className="text-sm leading-none">✦</span> Generate Plan</>
-                        }
-                      </button>
-                    </div>
-                  </div>
-
-                  {planError && (
-                    <div className="bg-danger/5 border border-danger/20 rounded-xl px-4 py-3 text-danger text-xs leading-relaxed">
-                      {planError}
-                    </div>
-                  )}
-
-                  {/* Integrations */}
-                  <div>
-                    <div className="text-[9px] font-bold tracking-[0.14em] text-subtle mb-3">
-                      CONNECTED INTEGRATIONS
-                    </div>
-                    <div className="grid grid-cols-4 gap-3">
-                      {INTEGRATIONS.map(({ name, icon, desc, color }) => (
-                        <div
-                          key={name}
-                          className="bg-surface border border-border rounded-xl p-3 text-center transition-all duration-150 hover:border-border2 group"
-                        >
-                          <div className="text-xl mb-1.5">{icon}</div>
-                          <div className="text-[11px] font-bold mb-0.5" style={{ color }}>
-                            {name}
-                          </div>
-                          <div className="text-[10px] text-subtle leading-snug">{desc}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Example prompts */}
-                  <div>
-                    <div className="text-[9px] font-bold tracking-[0.14em] text-subtle mb-3">
-                      TRY THESE EXAMPLES
-                    </div>
-                    <div className="space-y-2">
-                      {EXAMPLE_PROMPTS.map(ex => (
-                        <button
-                          key={ex}
-                          onClick={() => onQueryChange(ex)}
-                          className="w-full text-left bg-transparent border border-border rounded-xl px-4 py-3 text-xs text-muted leading-relaxed transition-all duration-100 hover:bg-surface hover:text-primary hover:border-border2 cursor-pointer"
-                        >
-                          {ex}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </>
+            <div className="space-y-8">
+              {/* Heading */}
+              {!selected && (
+                <div>
+                  <h1 className="text-[30px] font-bold text-primary leading-tight tracking-tight">
+                    What should I automate?
+                  </h1>
+                  <p className="text-[14px] text-muted mt-2 leading-relaxed max-w-lg">
+                    Describe your task in plain English — FlowForge will build a step-by-step plan
+                    using your connected services.
+                  </p>
+                </div>
               )}
-            </>
+
+              {/* Input */}
+              <div
+                className="rounded-xl overflow-hidden transition-all duration-200"
+                style={{
+                  background: "#111113",
+                  border: "1px solid rgba(255,255,255,0.09)",
+                }}
+              >
+                <div
+                  className="focus-within:border-indigo-500/50 focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.11)] rounded-xl transition-all duration-200"
+                  style={{ border: "1px solid transparent" }}
+                >
+                  <textarea
+                    value={query}
+                    onChange={e => onQueryChange(e.target.value)}
+                    placeholder="e.g. Search for unread emails from boss@company.com, summarize them with AI, and post to #general on Slack"
+                    rows={4}
+                    className="w-full bg-transparent border-0 text-primary text-[14px] px-5 pt-5 pb-3 resize-none leading-relaxed placeholder:text-zinc-600 outline-none"
+                    onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onPlan() }}
+                  />
+                  <div className="flex items-center justify-between px-5 py-3.5 border-t border-white/[0.06]">
+                    <span className="text-[12px] text-zinc-600 select-none">⌘ ↵ to generate</span>
+                    <button
+                      onClick={onPlan}
+                      disabled={planning || !query.trim()}
+                      className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-[13px] font-medium border-0 transition-all duration-150 ${
+                        planning || !query.trim()
+                          ? "bg-white/[0.04] text-zinc-600 cursor-not-allowed"
+                          : "btn-gradient text-white cursor-pointer"
+                      }`}
+                    >
+                      {planning
+                        ? <><Spinner size={12} /> Planning…</>
+                        : "Generate plan →"
+                      }
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {planError && (
+                <div className="rounded-lg px-4 py-3 text-danger text-[13px] leading-relaxed"
+                  style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.18)" }}
+                >
+                  {planError}
+                </div>
+              )}
+
+              {/* Connected integrations */}
+              <div className="flex items-center gap-5">
+                <span className="text-[12px] text-subtle font-medium">Connected</span>
+                {INTEGRATIONS.map(({ name, color }) => (
+                  <span key={name} className="inline-flex items-center gap-1.5 text-[12.5px] font-medium" style={{ color }}>
+                    <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: color }} />
+                    {name}
+                  </span>
+                ))}
+              </div>
+
+              {/* Examples */}
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-subtle mb-3">
+                  Try these
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  {EXAMPLE_PROMPTS.map(ex => (
+                    <button
+                      key={ex}
+                      onClick={() => onQueryChange(ex)}
+                      className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg text-[13px] text-muted leading-relaxed transition-colors duration-150 hover:bg-white/[0.04] hover:text-zinc-200 cursor-pointer bg-transparent border-0"
+                    >
+                      <span className="text-subtle mt-0.5 shrink-0 text-[12px]">→</span>
+                      {ex}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -409,26 +402,49 @@ function WorkflowsContent({
   )
 }
 
+// ─── Small shared components ──────────────────────────────────────────────────
+
+function PageHeader({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack?: () => void }) {
+  return (
+    <div className="mb-7">
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 text-[12.5px] text-muted hover:text-primary transition-colors duration-150 border-0 bg-transparent cursor-pointer mb-3"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back
+        </button>
+      )}
+      <h1 className="text-[20px] font-semibold text-primary leading-tight">{title}</h1>
+      {subtitle && <p className="text-[13px] text-muted mt-1">{subtitle}</p>}
+    </div>
+  )
+}
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="text-[15px] font-semibold text-primary">{children}</h2>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Home() {
-  // null = still checking, false = setup needed, true = ready
   const [integrationsReady, setIntegrationsReady] = useState<boolean | null>(null)
 
   useEffect(() => {
     api.getIntegrationStatus()
       .then(statuses => setIntegrationsReady(statuses.every(s => s.connected)))
-      .catch(() => setIntegrationsReady(false)) // show setup screen if backend is unreachable
+      .catch(() => setIntegrationsReady(false))
   }, [])
 
   if (integrationsReady === null) {
     return (
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        height: "100vh", background: "#0d0d12", color: "#6b7280",
-        gap: 10, fontSize: 13, fontFamily: "system-ui, sans-serif",
-      }}>
-        Loading…
+      <div className="flex items-center justify-center h-screen bg-canvas text-muted gap-2.5 text-[13px]">
+        <Spinner /> Loading…
       </div>
     )
   }
@@ -441,12 +457,12 @@ export default function Home() {
 }
 
 function WorkflowApp() {
-  const [workflows, setWorkflows]     = useState<Workflow[]>([])
-  const [selected, setSelected]       = useState<Workflow | null>(null)
-  const [wfView, setWfView]           = useState<WfView>({ type: "create" })
-  const [query, setQuery]             = useState("")
-  const [planning, setPlanning]       = useState(false)
-  const [planError, setPlanError]     = useState("")
+  const [workflows, setWorkflows]       = useState<Workflow[]>([])
+  const [selected, setSelected]         = useState<Workflow | null>(null)
+  const [wfView, setWfView]             = useState<WfView>({ type: "create" })
+  const [query, setQuery]               = useState("")
+  const [planning, setPlanning]         = useState(false)
+  const [planError, setPlanError]       = useState("")
   const [showHistory, setShowHistory]   = useState(false)
   const [showVersions, setShowVersions] = useState(false)
   const [sideLoading, setSideLoading]   = useState(true)
@@ -458,7 +474,6 @@ function WorkflowApp() {
 
   useEffect(() => { loadWorkflows() }, [loadWorkflows])
 
-  // ── Workflow handlers ───────────────────────────────────────────────────────
   async function handlePlan() {
     if (!query.trim()) return
     setPlanning(true); setPlanError("")
@@ -476,11 +491,11 @@ function WorkflowApp() {
 
   async function handleApprove(wf: Workflow) {
     try {
-      // approveWorkflow sets status="approved" and starts execution in one atomic call
       const result = await api.approveWorkflow(wf.id, true) as Execution
-      const latest = await api.getWorkflow(wf.id)
-      setSelected(latest)
-      setWfView({ type: "executing", executionId: result.id, workflow: latest })
+      const approvedWf: Workflow = { ...wf, status: "approved" }
+      setSelected(approvedWf)
+      setWorkflows(prev => prev.map(w => w.id === approvedWf.id ? approvedWf : w))
+      setWfView({ type: "executing", executionId: result.id, workflow: approvedWf })
     } catch (e) { alert(String(e)) }
   }
 
@@ -514,6 +529,15 @@ function WorkflowApp() {
     setWfView({ type: "create" })
   }
 
+  async function handleReplan(wf: Workflow) {
+    try {
+      const updated = await api.replanWorkflow(wf.id)
+      setWorkflows(prev => prev.map(w => w.id === updated.id ? updated : w))
+      setSelected(updated)
+      setWfView({ type: "review", workflow: updated })
+    } catch (e) { alert(`Re-plan failed: ${String(e)}`) }
+  }
+
   async function handleDelete(wf: Workflow) {
     try {
       await api.deleteWorkflow(wf.id)
@@ -537,8 +561,7 @@ function WorkflowApp() {
         onNewWorkflow={newWorkflow}
         onDelete={handleDelete}
       />
-
-      <main className="flex-1 overflow-y-auto bg-canvas">
+      <main className="flex-1 overflow-y-auto">
         <WorkflowsContent
           selected={selected}
           wfView={wfView}
@@ -575,16 +598,12 @@ function WorkflowApp() {
           onExecutionDone={(ex, logs, wf) =>
             setWfView({ type: "done", execution: ex, logs, workflow: wf })
           }
-          onRunNewSteps={(updated, executionId) => {
-            setWorkflows(prev => prev.map(w => w.id === updated.id ? updated : w))
-            setSelected(updated)
-            setWfView({ type: "executing", executionId, workflow: updated })
-          }}
           onChatReview={updated => {
             setWorkflows(prev => prev.map(w => w.id === updated.id ? updated : w))
             setSelected(updated)
             setWfView({ type: "review", workflow: updated })
           }}
+          onReplan={handleReplan}
         />
       </main>
     </div>

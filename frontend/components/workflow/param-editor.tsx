@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import type { WorkflowStep } from "@/lib/types"
-import { C } from "@/lib/utils"
 import { Btn } from "@/components/ui/button"
 import { IntChip } from "@/components/ui/int-chip"
 
@@ -23,45 +22,27 @@ export function ParamEditor({ step, onSave, onClose }: ParamEditorProps) {
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, background: "#000c", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200]"
       onClick={onClose}
     >
       <div
-        className="anim-slide"
+        className="anim-scale-in glass-modal w-[540px] max-w-[92vw] p-6 flex flex-col gap-5"
         onClick={e => e.stopPropagation()}
-        style={{
-          background: C.elevated,
-          border: `1px solid ${C.border2}`,
-          borderRadius: 14,
-          width: 540,
-          maxWidth: "92vw",
-          padding: 24,
-          display: "flex",
-          flexDirection: "column",
-          gap: 18,
-          boxShadow: `0 24px 64px #00000060`,
-        }}
       >
         {/* Modal header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div className="flex justify-between items-start">
+          <div className="flex items-center gap-3">
             <IntChip name={step.integration} size={34} />
             <div>
-              <div style={{ fontWeight: 600, color: C.text, fontSize: 14 }}>{step.name}</div>
-              <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+              <div className="font-semibold text-primary text-[14px]">{step.name}</div>
+              <div className="text-xs text-muted mt-0.5">
                 {step.integration} · {step.action}
               </div>
             </div>
           </div>
           <button
             onClick={onClose}
-            style={{
-              background: "none", border: "none", color: C.muted,
-              cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px",
-              borderRadius: 6, transition: "color .12s",
-            }}
-            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = C.text}
-            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = C.muted}
+            className="bg-transparent border-0 text-muted cursor-pointer text-xl leading-none p-1 rounded-md transition-colors duration-150 hover:text-primary hover:bg-white/5"
           >
             ×
           </button>
@@ -69,34 +50,21 @@ export function ParamEditor({ step, onSave, onClose }: ParamEditorProps) {
 
         {/* JSON editor */}
         <div>
-          <div style={{ fontSize: 10, color: C.muted, marginBottom: 7, fontWeight: 700, letterSpacing: "0.08em" }}>
-            PARAMETERS (JSON)
+          <div className="text-[10px] text-muted font-bold tracking-[0.1em] uppercase mb-1.5">
+            Parameters (JSON)
           </div>
           <textarea
             value={raw}
             onChange={e => { setRaw(e.target.value); setErr("") }}
             spellCheck={false}
-            style={{
-              width: "100%",
-              minHeight: 220,
-              background: C.canvas,
-              border: `1px solid ${err ? C.danger : C.border2}`,
-              borderRadius: 8,
-              color: C.text,
-              fontSize: 12,
-              fontFamily: "ui-monospace, 'Cascadia Code', monospace",
-              padding: "10px 14px",
-              resize: "vertical",
-              lineHeight: 1.65,
-              transition: "border-color .15s",
-            }}
-            onFocus={e => { if (!err) e.target.style.borderColor = C.accent + "60" }}
-            onBlur={e => { if (!err) e.target.style.borderColor = C.border2 }}
+            className={`glass-input w-full min-h-[220px] font-mono text-xs resize-y leading-relaxed px-3.5 py-2.5 ${
+              err ? "border-danger!" : ""
+            }`}
           />
-          {err && <div style={{ color: C.danger, fontSize: 12, marginTop: 5 }}>{err}</div>}
+          {err && <div className="text-danger text-xs mt-1.5">{err}</div>}
         </div>
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <div className="flex gap-2 justify-end">
           <Btn variant="ghost" onClick={onClose} small>Cancel</Btn>
           <Btn onClick={save} small>Save Changes</Btn>
         </div>

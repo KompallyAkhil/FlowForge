@@ -1,7 +1,15 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import type { Workflow, WorkflowChatMessage, WorkflowJson } from "@/lib/types"
+import type { Workflow, WorkflowJson } from "@/lib/types"
+
+// WorkflowChatMessage is not in lib/types — define it locally
+interface WorkflowChatMessage {
+  role: "user" | "assistant"
+  text: string
+  pendingWorkflowJson?: WorkflowJson
+  oldStepCount?: number
+}
 import { C, INT_COLOR } from "@/lib/utils"
 import { Spinner } from "@/components/ui/spinner"
 import * as api from "@/lib/api"
@@ -21,14 +29,17 @@ const INTEGRATION_ICONS: Record<string, string> = {
 }
 
 function StepPill({ step }: { step: { integration: string; name: string } }) {
-  const color = INT_COLOR[step.integration] ?? C.muted
+  const color = INT_COLOR[step.integration] ?? "#7a7a95"
   return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
-      background: color + "18", border: `1px solid ${color}40`,
-      borderRadius: 6, padding: "2px 8px", fontSize: 11, color,
-    }}>
-      <span style={{ fontSize: 10 }}>{INTEGRATION_ICONS[step.integration] ?? "⚙"}</span>
+    <span
+      className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] backdrop-blur-sm"
+      style={{
+        background: color + "14",
+        border: `1px solid ${color}30`,
+        color,
+      }}
+    >
+      <span className="text-[10px]">{INTEGRATION_ICONS[step.integration] ?? "⚙"}</span>
       {step.name}
     </span>
   )
@@ -37,17 +48,14 @@ function StepPill({ step }: { step: { integration: string; name: string } }) {
 function CurrentSteps({ workflow }: { workflow: Workflow }) {
   const steps = workflow.workflow_json?.steps ?? []
   return (
-    <div style={{
-      background: C.elevated, border: `1px solid ${C.border}`,
-      borderRadius: 12, padding: "10px 14px", marginBottom: 12,
-    }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", color: C.subtle, marginBottom: 8 }}>
-        CURRENT STEPS ({steps.length})
+    <div className="glass-card-static rounded-xl px-3.5 py-2.5 mb-3">
+      <div className="text-[10px] font-bold tracking-[0.12em] text-subtle uppercase mb-2">
+        Current Steps ({steps.length})
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <div className="flex flex-wrap gap-1.5">
         {steps.map((s, i) => (
-          <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ fontSize: 10, color: C.subtle }}>{i + 1}.</span>
+          <span key={s.id} className="flex items-center gap-1">
+            <span className="text-[10px] text-subtle">{i + 1}.</span>
             <StepPill step={s} />
           </span>
         ))}
@@ -73,53 +81,47 @@ function AssistantBubble({
   const stepsWereAdded = addedCount > 0
 
   return (
-    <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-      <div style={{
-        width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-        background: `linear-gradient(135deg, ${C.accent}, ${C.accentL})`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 12, color: "#fff", fontWeight: 700,
-      }}>✦</div>
-      <div style={{ flex: 1 }}>
-        <div style={{
-          background: C.elevated, border: `1px solid ${C.border2}`,
-          borderRadius: "4px 12px 12px 12px", padding: "10px 14px",
-          fontSize: 13, color: C.text, lineHeight: 1.55,
-        }}>
+    <div className="flex gap-2.5 items-start">
+      <div className="w-7 h-7 rounded-lg shrink-0 bg-gradient-to-br from-accent to-accent-l flex items-center justify-center text-xs text-white font-bold">
+        ✦
+      </div>
+      <div className="flex-1">
+        <div className="glass-card-static rounded-[4px_12px_12px_12px] px-3.5 py-2.5 text-[13px] text-primary leading-relaxed">
           {text}
         </div>
 
         {pendingJson && (
-          <div style={{ marginTop: 8 }}>
+          <div className="mt-2">
             {/* Badge the newly added steps */}
             {stepsWereAdded && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
+              <div className="flex flex-wrap gap-1.5 mb-2">
                 {newSteps.slice(prevCount).map(s => (
-                  <span key={s.id} style={{
-                    display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11,
-                    background: C.success + "18", border: `1px solid ${C.success}40`,
-                    color: C.success, borderRadius: 6, padding: "2px 8px",
-                  }}>
+                  <span
+                    key={s.id}
+                    className="inline-flex items-center gap-1 text-[11px] rounded-md px-2 py-0.5"
+                    style={{
+                      background: "rgba(52,211,153,0.12)",
+                      border: "1px solid rgba(52,211,153,0.25)",
+                      color: "#34d399",
+                    }}
+                  >
                     + {s.name}
                   </span>
                 ))}
               </div>
             )}
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div className="flex gap-2 flex-wrap">
               {/* Primary: run only the new step(s) — only shown when steps were added */}
               {stepsWereAdded && (
                 <button
                   onClick={() => onRunNew(pendingJson, prevCount)}
                   disabled={acting}
-                  style={{
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                    background: acting ? C.elevated : C.accent,
-                    color: acting ? C.muted : "#fff",
-                    border: "none", borderRadius: 8, padding: "7px 14px",
-                    fontSize: 12, fontWeight: 600,
-                    cursor: acting ? "not-allowed" : "pointer",
-                  }}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold border-0 transition-all duration-200 ${
+                    acting
+                      ? "bg-white/5 text-muted cursor-not-allowed"
+                      : "btn-gradient text-white cursor-pointer"
+                  }`}
                 >
                   {acting
                     ? <><Spinner size={11} /> Working…</>
@@ -131,15 +133,11 @@ function AssistantBubble({
               <button
                 onClick={() => onReview(pendingJson)}
                 disabled={acting}
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 6,
-                  background: "transparent",
-                  color: acting ? C.subtle : C.muted,
-                  border: `1px solid ${C.border2}`,
-                  borderRadius: 8, padding: "7px 14px",
-                  fontSize: 12, fontWeight: 500,
-                  cursor: acting ? "not-allowed" : "pointer",
-                }}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-200 ${
+                  acting
+                    ? "bg-transparent border-white/5 text-subtle cursor-not-allowed"
+                    : "btn-ghost cursor-pointer"
+                }`}
               >
                 {stepsWereAdded ? "Review & Run all →" : "Apply & Review →"}
               </button>
@@ -153,12 +151,8 @@ function AssistantBubble({
 
 function UserBubble({ text }: { text: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "flex-end" }}>
-      <div style={{
-        maxWidth: "75%", background: C.accent + "22", border: `1px solid ${C.accent}40`,
-        borderRadius: "12px 4px 12px 12px", padding: "10px 14px",
-        fontSize: 13, color: C.text, lineHeight: 1.55,
-      }}>
+    <div className="flex justify-end">
+      <div className="max-w-[75%] bg-accent/20 border border-accent/30 rounded-[12px_4px_12px_12px] px-3.5 py-2.5 text-[13px] text-primary leading-relaxed backdrop-blur-sm">
         {text}
       </div>
     </div>
@@ -249,12 +243,12 @@ export function WorkflowChatPanel({ workflow, onRunNewSteps, onReview, onWorkflo
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      <div style={{ marginBottom: 12 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: "0 0 4px" }}>
+    <div className="flex flex-col gap-0">
+      <div className="mb-3">
+        <h2 className="text-[15px] font-bold text-primary m-0 mb-1">
           Continue building this workflow
         </h2>
-        <p style={{ fontSize: 12, color: C.muted, margin: 0, lineHeight: 1.5 }}>
+        <p className="text-xs text-muted m-0 leading-relaxed">
           Add new steps in plain English. New steps run on their own — no need to restart from scratch.
         </p>
       </div>
@@ -262,11 +256,7 @@ export function WorkflowChatPanel({ workflow, onRunNewSteps, onReview, onWorkflo
       <CurrentSteps workflow={workflow} />
 
       {/* Chat messages */}
-      <div style={{
-        background: C.surface, border: `1px solid ${C.border}`,
-        borderRadius: 14, padding: "16px", display: "flex", flexDirection: "column",
-        gap: 14, maxHeight: 380, overflowY: "auto", marginBottom: 10,
-      }}>
+      <div className="glass-card-static rounded-2xl p-4 flex flex-col gap-3.5 max-h-[380px] overflow-y-auto mb-2.5">
         {messages.map((msg, i) =>
           msg.role === "user"
             ? <UserBubble key={i} text={msg.text} />
@@ -281,18 +271,11 @@ export function WorkflowChatPanel({ workflow, onRunNewSteps, onReview, onWorkflo
               />
         )}
         {loading && (
-          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-            <div style={{
-              width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-              background: `linear-gradient(135deg, ${C.accent}, ${C.accentL})`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 12, color: "#fff",
-            }}>✦</div>
-            <div style={{
-              background: C.elevated, border: `1px solid ${C.border2}`,
-              borderRadius: "4px 12px 12px 12px", padding: "10px 14px",
-              display: "flex", alignItems: "center", gap: 8, color: C.muted, fontSize: 13,
-            }}>
+          <div className="flex gap-2.5 items-start">
+            <div className="w-7 h-7 rounded-lg shrink-0 bg-gradient-to-br from-accent to-accent-l flex items-center justify-center text-xs text-white">
+              ✦
+            </div>
+            <div className="glass-card-static rounded-[4px_12px_12px_12px] px-3.5 py-2.5 flex items-center gap-2 text-muted text-[13px]">
               <Spinner size={12} /> Thinking…
             </div>
           </div>
@@ -301,40 +284,27 @@ export function WorkflowChatPanel({ workflow, onRunNewSteps, onReview, onWorkflo
       </div>
 
       {/* Input */}
-      <div style={{
-        background: C.surface, border: `1px solid ${C.border2}`,
-        borderRadius: 14, overflow: "hidden",
-      }}>
+      <div className="glass-card-static rounded-2xl overflow-hidden">
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSend() }}
           placeholder='e.g. "Add a step to log the summary to Google Sheets" or "Also post results to Slack #general"'
           rows={3}
-          style={{
-            width: "100%", background: "transparent", border: "none",
-            color: C.text, fontSize: 13, padding: "12px 14px 8px",
-            resize: "none", fontFamily: "inherit", lineHeight: 1.6, outline: "none",
-          }}
+          className="w-full bg-transparent border-0 text-primary text-[13px] px-4 pt-3 pb-2 resize-none font-[inherit] leading-relaxed outline-none placeholder:text-subtle/50"
         />
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "8px 14px 10px", borderTop: `1px solid ${C.border}`,
-        }}>
-          <span style={{ fontSize: 11, color: C.subtle }}>⌘↵ to send</span>
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/5">
+          <span className="text-[11px] text-subtle">⌘↵ to send</span>
           <button
             onClick={handleSend}
             disabled={loading || !input.trim()}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              background: loading || !input.trim() ? C.elevated : C.accent,
-              color: loading || !input.trim() ? C.subtle : "#fff",
-              border: "none", borderRadius: 9, padding: "7px 16px",
-              fontSize: 12, fontWeight: 600,
-              cursor: loading || !input.trim() ? "not-allowed" : "pointer",
-            }}
+            className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-semibold border-0 transition-all duration-200 ${
+              loading || !input.trim()
+                ? "bg-white/5 text-subtle cursor-not-allowed"
+                : "btn-gradient text-white cursor-pointer"
+            }`}
           >
-            {loading ? <><Spinner size={11} /> Thinking…</> : <><span style={{ fontSize: 13 }}>✦</span> Send</>}
+            {loading ? <><Spinner size={11} /> Thinking…</> : <><span className="text-[13px]">✦</span> Send</>}
           </button>
         </div>
       </div>

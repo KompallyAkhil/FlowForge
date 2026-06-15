@@ -77,20 +77,6 @@ export interface Execution {
   duration_seconds?: number | null
 }
 
-// ── Execution log ──────────────────────────────────────────────────────────
-
-export interface WorkflowChatMessage {
-  role: "user" | "assistant"
-  text: string
-  pendingWorkflowJson?: WorkflowJson
-  oldStepCount?: number
-}
-
-export interface WorkflowChatResponse {
-  reply: string
-  workflow_json: WorkflowJson
-}
-
 // ── Execution session chat ─────────────────────────────────────────────────
 
 export interface ExecutionChatMessage {

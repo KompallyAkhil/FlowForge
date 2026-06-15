@@ -12,89 +12,83 @@ function ChangeRow({ c }: { c: ChangeField }) {
   const [paramsOpen, setParamsOpen] = useState(false)
 
   const pill = (text: string, color: string) => (
-    <span style={{
-      fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
-      padding: "2px 7px", borderRadius: 99,
-      background: color + "18", border: `1px solid ${color}33`, color,
-    }}>{text}</span>
+    <span
+      className="text-[10px] font-semibold tracking-[0.07em] px-2 py-0.5 rounded-md"
+      style={{
+        background: color + "12",
+        border: `1px solid ${color}22`,
+        color,
+      }}
+    >{text}</span>
   )
 
   if (c.field === "name") return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.muted }}>
-      {pill("NAME", C.accentL)}
-      <span style={{ color: C.subtle, textDecoration: "line-through" }}>{c.before}</span>
-      <span style={{ color: C.subtle }}>→</span>
-      <span style={{ color: C.text, fontWeight: 500 }}>{c.after}</span>
+    <div className="flex items-center gap-2 text-xs text-muted">
+      {pill("NAME", "#a78bfa")}
+      <span className="text-subtle line-through">{c.before}</span>
+      <span className="text-subtle">→</span>
+      <span className="text-primary font-medium">{c.after}</span>
     </div>
   )
 
   if (c.field === "step_added") return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.muted }}>
-      {pill("ADDED", C.success)}
-      <span style={{ color: C.text }}>{c.step_name}</span>
+    <div className="flex items-center gap-2 text-xs text-muted">
+      {pill("ADDED", "#34d399")}
+      <span className="text-primary">{c.step_name}</span>
     </div>
   )
 
   if (c.field === "step_removed") return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.muted }}>
-      {pill("REMOVED", C.danger)}
-      <span style={{ color: C.text, textDecoration: "line-through" }}>{c.step_name}</span>
+    <div className="flex items-center gap-2 text-xs text-muted">
+      {pill("REMOVED", "#fb7185")}
+      <span className="text-primary line-through">{c.step_name}</span>
     </div>
   )
 
   if (c.field === "step_name") return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.muted }}>
-      {pill("RENAMED", C.warning)}
-      <span style={{ color: C.subtle, textDecoration: "line-through" }}>{c.before}</span>
-      <span style={{ color: C.subtle }}>→</span>
-      <span style={{ color: C.text }}>{c.after}</span>
+    <div className="flex items-center gap-2 text-xs text-muted">
+      {pill("RENAMED", "#fbbf24")}
+      <span className="text-subtle line-through">{c.before}</span>
+      <span className="text-subtle">→</span>
+      <span className="text-primary">{c.after}</span>
     </div>
   )
 
   if (c.field === "step_action") return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.muted }}>
-      {pill("ACTION", C.info)}
-      <span style={{ color: C.text, fontWeight: 500 }}>{c.step_name}</span>
-      <span style={{ fontFamily: "monospace", color: C.subtle, textDecoration: "line-through" }}>{c.before}</span>
-      <span style={{ color: C.subtle }}>→</span>
-      <span style={{ fontFamily: "monospace", color: C.accentL }}>{c.after}</span>
+    <div className="flex items-center gap-2 text-xs text-muted">
+      {pill("ACTION", "#60a5fa")}
+      <span className="text-primary font-medium">{c.step_name}</span>
+      <span className="font-mono text-subtle line-through">{c.before}</span>
+      <span className="text-subtle">→</span>
+      <span className="font-mono text-accent-l">{c.after}</span>
     </div>
   )
 
   if (c.field === "step_params") return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.muted }}>
-        {pill("PARAMS", C.accentL)}
-        <span style={{ color: C.text, fontWeight: 500 }}>{c.step_name}</span>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2 text-xs text-muted">
+        {pill("PARAMS", "#a78bfa")}
+        <span className="text-primary font-medium">{c.step_name}</span>
         <button
           onClick={() => setParamsOpen(o => !o)}
-          style={{
-            background: "none", border: `1px solid ${C.border2}`, color: C.muted,
-            fontSize: 10, padding: "1px 8px", borderRadius: 5, cursor: "pointer",
-          }}
+          className="bg-transparent border border-white/8 text-muted text-[10px] px-2 py-0 rounded cursor-pointer hover:bg-white/5 hover:border-white/12 transition-all duration-150"
         >
           {paramsOpen ? "hide diff" : "show diff"}
         </button>
       </div>
       {paramsOpen && (
-        <div style={{ display: "flex", gap: 8 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: C.danger, fontWeight: 700, marginBottom: 4, letterSpacing: "0.06em" }}>BEFORE</div>
-            <pre style={{
-              background: C.danger + "08", border: `1px solid ${C.danger}22`,
-              borderRadius: 7, padding: "8px 12px", fontSize: 11,
-              color: C.danger + "cc", fontFamily: "ui-monospace,'Cascadia Code',monospace",
-              margin: 0, overflowX: "auto",
-            }}>{JSON.stringify(c.before, null, 2)}</pre>
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <div className="text-[10px] text-danger font-bold mb-1 tracking-[0.07em] uppercase">Before</div>
+            <pre className="bg-danger/5 border border-danger/15 rounded-lg px-3 py-2 text-[11px] text-danger/80 font-mono m-0 overflow-x-auto">
+              {JSON.stringify(c.before, null, 2)}
+            </pre>
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: C.success, fontWeight: 700, marginBottom: 4, letterSpacing: "0.06em" }}>AFTER</div>
-            <pre style={{
-              background: C.success + "08", border: `1px solid ${C.success}22`,
-              borderRadius: 7, padding: "8px 12px", fontSize: 11,
-              color: C.success + "cc", fontFamily: "ui-monospace,'Cascadia Code',monospace",
-              margin: 0, overflowX: "auto",
-            }}>{JSON.stringify(c.after, null, 2)}</pre>
+          <div className="flex-1">
+            <div className="text-[10px] text-success font-bold mb-1 tracking-[0.07em] uppercase">After</div>
+            <pre className="bg-success/5 border border-success/15 rounded-lg px-3 py-2 text-[11px] text-success/80 font-mono m-0 overflow-x-auto">
+              {JSON.stringify(c.after, null, 2)}
+            </pre>
           </div>
         </div>
       )}
@@ -102,8 +96,8 @@ function ChangeRow({ c }: { c: ChangeField }) {
   )
 
   if (c.field === "steps_reordered") return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.muted }}>
-      {pill("REORDERED", C.warning)}
+    <div className="flex items-center gap-2 text-xs text-muted">
+      {pill("REORDERED", "#fbbf24")}
       <span>Steps were reordered</span>
     </div>
   )
@@ -119,66 +113,51 @@ function VersionRow({ ver }: { ver: WorkflowVersion }) {
   const hasChanges = (ver.changed_fields ?? []).length > 0
 
   return (
-    <div style={{
-      border: `1px solid ${C.border}`,
-      borderRadius: 10,
-      overflow: "hidden",
-      transition: "border-color .15s",
-    }}>
+    <div className="glass-card-static rounded-xl overflow-hidden">
       {/* Header */}
       <button
         onClick={() => setOpen(o => !o)}
-        style={{
-          width: "100%", background: "none", border: "none", cursor: "pointer",
-          display: "flex", alignItems: "center", gap: 12,
-          padding: "11px 14px", textAlign: "left",
-        }}
-        onMouseEnter={e => (e.currentTarget.style.background = C.surface)}
-        onMouseLeave={e => (e.currentTarget.style.background = "none")}
+        className="w-full bg-transparent border-0 cursor-pointer flex items-center gap-3 px-3.5 py-2.5 text-left transition-colors duration-150 hover:bg-white/[0.03]"
       >
         {/* Version badge */}
-        <span style={{
-          fontSize: 11, fontWeight: 700, color: C.accentL,
-          background: C.accent + "18", border: `1px solid ${C.accent}33`,
-          borderRadius: 6, padding: "2px 9px", flexShrink: 0,
-        }}>
+        <span
+          className="text-[11px] font-semibold rounded-md px-2 py-0.5 shrink-0"
+          style={{
+            color: "#818cf8",
+            background: "rgba(99,102,241,0.12)",
+            border: "1px solid rgba(99,102,241,0.20)",
+          }}
+        >
           v{ver.version_number}
         </span>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-medium text-primary whitespace-nowrap overflow-hidden text-ellipsis">
             {ver.change_summary}
           </div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+          <div className="text-[11px] text-muted mt-0.5">
             {fmtDate(ver.created_at)} · {ver.workflow_json.steps?.length ?? 0} steps
           </div>
         </div>
 
-        <span style={{
-          fontSize: 10, color: C.subtle, flexShrink: 0,
-          transition: "transform .15s", transform: open ? "rotate(180deg)" : "none",
-        }}>▼</span>
+        <span className={`text-[10px] text-subtle shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`}>▼</span>
       </button>
 
       {/* Expanded — change details */}
       {open && (
-        <div style={{
-          borderTop: `1px solid ${C.border}`,
-          padding: "12px 14px",
-          display: "flex", flexDirection: "column", gap: 10,
-        }}>
+        <div className="border-t border-white/5 px-3.5 py-3 flex flex-col gap-2.5 anim-slide">
           {isInitial && (
-            <div style={{ fontSize: 12, color: C.muted }}>
+            <div className="text-xs text-muted">
               Workflow created with {ver.workflow_json.steps?.length ?? 0} steps.
             </div>
           )}
 
           {!isInitial && !hasChanges && (
-            <div style={{ fontSize: 12, color: C.subtle }}>No structural changes recorded.</div>
+            <div className="text-xs text-subtle">No structural changes recorded.</div>
           )}
 
           {hasChanges && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="flex flex-col gap-2">
               {(ver.changed_fields as ChangeField[]).map((c, i) => (
                 <ChangeRow key={i} c={c} />
               ))}
@@ -187,32 +166,21 @@ function VersionRow({ ver }: { ver: WorkflowVersion }) {
 
           {/* Step snapshot */}
           <div>
-            <div style={{
-              fontSize: 10, color: C.muted, fontWeight: 700,
-              letterSpacing: "0.08em", marginBottom: 6,
-            }}>
-              STEP SNAPSHOT AT THIS VERSION
+            <div className="text-[10px] text-muted font-bold tracking-[0.1em] uppercase mb-1.5">
+              Step Snapshot at This Version
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div className="flex flex-col gap-1">
               {(ver.workflow_json.steps ?? []).map((s, i) => (
                 <div
                   key={s.id ?? i}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10,
-                    background: C.canvas, border: `1px solid ${C.border}`,
-                    borderRadius: 7, padding: "7px 12px",
-                  }}
+                  className="flex items-center gap-2.5 rounded-lg px-3 py-1.5"
+                  style={{ background: "rgba(9,9,11,0.5)", border: "1px solid rgba(255,255,255,0.06)" }}
                 >
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, color: C.muted,
-                    background: C.surface, border: `1px solid ${C.border2}`,
-                    borderRadius: 4, padding: "1px 6px", flexShrink: 0,
-                  }}>{i + 1}</span>
-                  <span style={{ fontSize: 12, color: C.text, flex: 1 }}>{s.name}</span>
-                  <span style={{
-                    fontSize: 10, color: C.muted,
-                    fontFamily: "ui-monospace,'Cascadia Code',monospace",
-                  }}>
+                  <span className="text-[10px] font-bold text-muted bg-white/5 border border-white/8 rounded px-1.5 py-px shrink-0">
+                    {i + 1}
+                  </span>
+                  <span className="text-xs text-primary flex-1">{s.name}</span>
+                  <span className="text-[10px] text-muted font-mono">
                     {s.integration}.{s.action}
                   </span>
                 </div>
@@ -245,7 +213,7 @@ export function VersionHistoryPanel({ workflowId }: VersionHistoryPanelProps) {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 10, color: C.muted, fontSize: 13, padding: "20px 0" }}>
+      <div className="flex items-center gap-2.5 text-muted text-[13px] py-5">
         <Spinner /> Loading version history…
       </div>
     )
@@ -253,16 +221,16 @@ export function VersionHistoryPanel({ workflowId }: VersionHistoryPanelProps) {
 
   if (!versions.length) {
     return (
-      <div style={{ padding: "24px 0", color: C.subtle, fontSize: 13, textAlign: "center", lineHeight: 1.65 }}>
+      <div className="py-6 text-subtle text-[13px] text-center leading-relaxed">
         No versions yet.<br />
-        <span style={{ fontSize: 11 }}>Versions are saved each time the workflow is updated.</span>
+        <span className="text-[11px]">Versions are saved each time the workflow is updated.</span>
       </div>
     )
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
+    <div className="flex flex-col gap-1.5">
+      <div className="text-[11px] text-muted mb-1">
         {versions.length} saved version{versions.length !== 1 ? "s" : ""} — newest first
       </div>
       {versions.map(ver => <VersionRow key={ver.id} ver={ver} />)}

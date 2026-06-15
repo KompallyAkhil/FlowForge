@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import type { Execution } from "@/lib/types"
-import { C, statusColor, calcDuration, fmtDate } from "@/lib/utils"
+import { statusColor, calcDuration, fmtDate } from "@/lib/utils"
 import { Dot } from "@/components/ui/dot"
 import { Spinner } from "@/components/ui/spinner"
 import * as api from "@/lib/api"
@@ -13,7 +13,7 @@ interface HistoryPanelProps {
 }
 
 export function HistoryPanel({ workflowId, onSelect }: HistoryPanelProps) {
-  const [execs, setExecs]   = useState<Execution[]>([])
+  const [execs, setExecs]     = useState<Execution[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export function HistoryPanel({ workflowId, onSelect }: HistoryPanelProps) {
 
   if (loading) {
     return (
-      <div style={{ padding: "20px 0", display: "flex", gap: 10, alignItems: "center", color: C.muted, fontSize: 13 }}>
+      <div className="py-5 flex gap-2.5 items-center text-muted text-[13px]">
         <Spinner /> Loading history…
       </div>
     )
@@ -33,54 +33,36 @@ export function HistoryPanel({ workflowId, onSelect }: HistoryPanelProps) {
 
   if (!execs.length) {
     return (
-      <div style={{ padding: "24px 0", color: C.subtle, fontSize: 13, textAlign: "center", lineHeight: 1.65 }}>
-        No executions yet.<br />
-        <span style={{ fontSize: 11 }}>Run this workflow to see history here.</span>
+      <div className="py-6 text-subtle text-[13px] text-center leading-relaxed">
+        No executions yet.
+        <br />
+        <span className="text-[12px]">Run this workflow to see history here.</span>
       </div>
     )
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div className="flex flex-col gap-1.5">
       {execs.map(ex => {
         const col = statusColor(ex.status)
+        const dur = calcDuration(ex.started_at, ex.completed_at)
         return (
           <button
             key={ex.id}
             onClick={() => onSelect(ex)}
-            style={{
-              display: "flex", alignItems: "center", gap: 12,
-              background: "none", border: `1px solid ${C.border}`, borderRadius: 8,
-              padding: "11px 14px", cursor: "pointer", textAlign: "left", width: "100%",
-              transition: "background .12s, border-color .12s",
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLButtonElement).style.background = C.surface
-              ;(e.currentTarget as HTMLButtonElement).style.borderColor = C.border2
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLButtonElement).style.background = "none"
-              ;(e.currentTarget as HTMLButtonElement).style.borderColor = C.border
-            }}
+            className="flex items-center gap-3.5 bg-transparent rounded-xl px-4 py-3 cursor-pointer text-left w-full transition-colors duration-150 hover:bg-white/[0.04]"
+            style={{ border: "1px solid rgba(255,255,255,0.06)" }}
           >
             <Dot color={col} size={7} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: C.text, textTransform: "capitalize" }}>
-                {ex.status}
-              </div>
-              <div style={{ fontSize: 11, color: C.muted }}>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-medium text-primary capitalize">{ex.status}</div>
+              <div className="text-[11.5px] text-muted mt-0.5">
                 {ex.started_at ? fmtDate(ex.started_at) : "—"}
               </div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-              {calcDuration(ex.started_at, ex.completed_at) && (
-                <span style={{ fontSize: 11, color: C.muted }}>
-                  {calcDuration(ex.started_at, ex.completed_at)}
-                </span>
-              )}
-              <span style={{ fontSize: 10, color: C.subtle, fontFamily: "monospace" }}>
-                {ex.id.slice(0, 8)}
-              </span>
+            <div className="flex flex-col items-end gap-0.5 shrink-0">
+              {dur && <span className="text-[11.5px] text-muted">{dur}</span>}
+              <span className="text-[10.5px] text-subtle font-mono">{ex.id.slice(0, 8)}</span>
             </div>
           </button>
         )

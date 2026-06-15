@@ -1,3 +1,3 @@
-from app.workflow.planner.llm_planner import plan_workflow, chat_modify_workflow
+from app.workflow.planner.llm_planner import plan_workflow
 
-__all__ = ["plan_workflow", "chat_modify_workflow"]
+__all__ = ["plan_workflow"]

@@ -9,8 +9,6 @@ from app.prompts import (
     PLANNER_CHAINING_RULES,
     PLANNER_TRIGGER_RULES,
     PLANNER_OUTPUT_FORMAT,
-    WORKFLOW_MODIFIER_PREAMBLE,
-    WORKFLOW_MODIFIER_RULES,
 )
 from app.workflow.schemas import WorkflowDefinition
 
@@ -89,119 +87,6 @@ def _build_system_prompt() -> str:
         f"{PLANNER_TRIGGER_RULES}\n\n"
         f"{PLANNER_OUTPUT_FORMAT}"
     )
-
-
-def _build_chat_system_prompt() -> str:
-    from app.workflow.integrations.base import IntegrationRegistry
-
-    specs = IntegrationRegistry.collect_planner_specs()
-    integration_names = ", ".join(spec["name"] for spec in specs) + ", generic"
-
-    action_group_lines: list[str] = []
-    for spec in specs:
-        action_names = ", ".join(f"{spec['name']}.{a['name']}" for a in spec["actions"])
-        action_group_lines.append(f"- {action_names}")
-    action_group_lines.append('- generic.<any_action>: {"description": "what this step does", ...params}')
-    known_actions = "\n".join(action_group_lines)
-
-    return (
-        f"{WORKFLOW_MODIFIER_PREAMBLE}\n\n"
-        f"{WORKFLOW_MODIFIER_RULES}\n\n"
-        f"AVAILABLE INTEGRATIONS: {integration_names}\n\n"
-        f"KNOWN ACTIONS (same as original planner):\n{known_actions}\n\n"
-        f"STEP OUTPUT CHAINING: use ${{step_N.field}} to reference outputs of previous steps (N is 1-indexed)."
-    )
-
-
-async def chat_modify_workflow(current_workflow_json: dict, user_message: str) -> tuple[str, WorkflowDefinition]:
-    """Modify an existing workflow based on a natural language instruction.
-
-    Returns (reply_text, updated_workflow_definition).
-    """
-    settings = get_settings()
-    if settings.ai_provider == "openrouter":
-        return await _chat_openrouter(current_workflow_json, user_message)
-    if settings.ai_provider == "groq":
-        return await _chat_groq(current_workflow_json, user_message)
-    return await _chat_anthropic(current_workflow_json, user_message)
-
-
-def _parse_chat_output(raw: str) -> tuple[str, WorkflowDefinition]:
-    raw = raw.strip()
-    raw = re.sub(r"^```(?:json)?\s*\n?", "", raw)
-    raw = re.sub(r"\n?```\s*$", "", raw)
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"LLM returned invalid JSON: {exc}\n\nRaw:\n{raw}") from exc
-
-    reply = data.get("reply", "Workflow updated.")
-    wf_data = data.get("workflow", data)
-
-    allowed = _allowed_integrations()
-    for step in wf_data.get("steps", []):
-        integration = step.get("integration", "")
-        action = step.get("action", "")
-        prefix = integration + "."
-        if action.startswith(prefix):
-            step["action"] = action[len(prefix):]
-        if integration not in allowed:
-            step["integration"] = "generic"
-            step.setdefault("params", {}).setdefault("description", f"{integration}.{step['action']}")
-
-    return reply, WorkflowDefinition(**wf_data)
-
-
-async def _chat_openrouter(current_workflow_json: dict, user_message: str) -> tuple[str, WorkflowDefinition]:
-    from openai import AsyncOpenAI
-    import json as _json
-    s = get_settings()
-    client = AsyncOpenAI(api_key=s.openrouter_api_key, base_url=s.openrouter_base_url)
-
-    context = f"Current workflow JSON:\n{_json.dumps(current_workflow_json, indent=2)}\n\nUser instruction: {user_message}"
-    response = await client.chat.completions.create(
-        model=s.openrouter_model,
-        max_tokens=s.planner_max_tokens,
-        messages=[
-            {"role": "system", "content": _build_chat_system_prompt()},
-            {"role": "user", "content": context},
-        ],
-    )
-    return _parse_chat_output(response.choices[0].message.content or "")
-
-
-async def _chat_groq(current_workflow_json: dict, user_message: str) -> tuple[str, WorkflowDefinition]:
-    from groq import AsyncGroq
-    import json as _json
-    s = get_settings()
-    client = AsyncGroq(api_key=s.groq_api_key)
-
-    context = f"Current workflow JSON:\n{_json.dumps(current_workflow_json, indent=2)}\n\nUser instruction: {user_message}"
-    response = await client.chat.completions.create(
-        model=s.groq_model,
-        max_tokens=s.planner_max_tokens,
-        messages=[
-            {"role": "system", "content": _build_chat_system_prompt()},
-            {"role": "user", "content": context},
-        ],
-    )
-    return _parse_chat_output(response.choices[0].message.content or "")
-
-
-async def _chat_anthropic(current_workflow_json: dict, user_message: str) -> tuple[str, WorkflowDefinition]:
-    import anthropic
-    import json as _json
-    s = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=s.anthropic_api_key)
-
-    context = f"Current workflow JSON:\n{_json.dumps(current_workflow_json, indent=2)}\n\nUser instruction: {user_message}"
-    response = await client.messages.create(
-        model=s.ai_model,
-        max_tokens=s.planner_max_tokens,
-        system=_build_chat_system_prompt(),
-        messages=[{"role": "user", "content": context}],
-    )
-    return _parse_chat_output(response.content[0].text or "")
 
 
 async def plan_workflow(natural_language: str) -> WorkflowDefinition:

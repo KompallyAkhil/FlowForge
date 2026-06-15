@@ -1,4 +1,4 @@
-import type { Workflow, WorkflowVersion, Execution, ExecutionLog, WorkflowJson, IntegrationStatus, WorkflowStep, WorkflowChatResponse, ExecutionChatMessage, ExecutionChatResponse } from "./types"
+import type { Workflow, WorkflowVersion, Execution, ExecutionLog, WorkflowJson, IntegrationStatus, WorkflowStep, ExecutionChatMessage, ExecutionChatResponse } from "./types"
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
@@ -40,6 +40,9 @@ export const updateWorkflow = (
 
 export const deleteWorkflow = (id: string): Promise<void> =>
   req(`/api/workflows/${id}`, { method: "DELETE" })
+
+export const replanWorkflow = (id: string): Promise<Workflow> =>
+  req(`/api/workflows/${id}/replan`, { method: "POST" })
 
 // Workflow review — approve / reject
 export const approveWorkflow = (
@@ -119,13 +122,6 @@ export const saveSlackToken = (bot_token: string): Promise<{ integration: string
 export const disconnectIntegration = (name: string): Promise<{ disconnected: string[] }> =>
   req(`/api/integrations/${name}`, { method: "DELETE" })
 
-// Workflow chat — extend / modify via natural language
-export const chatWithWorkflow = (id: string, message: string): Promise<WorkflowChatResponse> =>
-  req(`/api/workflows/${id}/chat`, {
-    method: "POST",
-    body: JSON.stringify({ message }),
-  })
-
 // Execution session chat
 export const chatWithExecution = (
   executionId: string,
@@ -135,6 +131,16 @@ export const chatWithExecution = (
   req(`/api/executions/${executionId}/chat`, {
     method: "POST",
     body: JSON.stringify({ message, history }),
+  })
+
+// Workflow session chat
+export const chatWithWorkflow = (
+  workflowId: string,
+  message: string,
+): Promise<{ reply: string; workflow_json?: WorkflowJson }> =>
+  req(`/api/workflows/${workflowId}/chat`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
   })
 
 // Schedule management

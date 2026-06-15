@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import type { WorkflowStep } from "@/lib/types"
-import { C } from "@/lib/utils"
 import { Btn } from "@/components/ui/button"
 import { IntChip } from "@/components/ui/int-chip"
 
@@ -95,7 +94,6 @@ export function StepEditor({ step, onSave, onClose }: StepEditorProps) {
   }
 
   function handleActionChange(act: string) {
-    // Only overwrite params if they still match the previous action's defaults (or are empty)
     try {
       const prevDefaults = INT_CATALOG[integration]?.defaults[action] ?? {}
       const current      = JSON.parse(paramsRaw)
@@ -127,106 +125,62 @@ export function StepEditor({ step, onSave, onClose }: StepEditorProps) {
     onClose()
   }
 
-  const inputBase: React.CSSProperties = {
-    width: "100%",
-    background: C.canvas,
-    border: `1px solid ${C.border2}`,
-    borderRadius: 7,
-    color: C.text,
-    fontSize: 13,
-    padding: "7px 12px",
-    fontFamily: "inherit",
-    outline: "none",
-    transition: "border-color .15s",
-  }
-
-  const labelBase: React.CSSProperties = {
-    fontSize: 10,
-    color: C.muted,
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    marginBottom: 6,
-    display: "block",
-  }
-
   return (
     <div
-      style={{ position: "fixed", inset: 0, background: "#000c", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}
+      className="fixed inset-0 flex items-center justify-center z-[200]"
+      style={{ background: "rgba(0,0,0,0.6)" }}
       onClick={onClose}
     >
       <div
-        className="anim-slide"
+        className="anim-scale-in glass-modal w-[560px] max-w-[94vw] max-h-[90vh] overflow-y-auto p-6 flex flex-col gap-5"
         onClick={e => e.stopPropagation()}
-        style={{
-          background: C.elevated,
-          border: `1px solid ${C.border2}`,
-          borderRadius: 14,
-          width: 560,
-          maxWidth: "94vw",
-          maxHeight: "90vh",
-          overflowY: "auto",
-          padding: 24,
-          display: "flex",
-          flexDirection: "column",
-          gap: 18,
-          boxShadow: "0 24px 64px #00000060",
-        }}
       >
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div className="flex justify-between items-start">
           <div>
-            <div style={{ fontWeight: 700, color: C.text, fontSize: 15 }}>
+            <div className="font-semibold text-primary text-[15px]">
               {isNew ? "Add Step" : "Edit Step"}
             </div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+            <div className="text-[12px] text-muted mt-0.5">
               {isNew ? "Configure a new workflow step" : "Modify this step's properties"}
             </div>
           </div>
           <button
             onClick={onClose}
-            style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px", borderRadius: 6, transition: "color .12s" }}
-            onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.color = C.text)}
-            onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.color = C.muted)}
+            className="bg-transparent border-0 text-muted cursor-pointer text-xl leading-none p-1 rounded-md transition-colors duration-150 hover:text-primary hover:bg-white/5"
           >×</button>
         </div>
 
         {/* Step name */}
         <div>
-          <label style={labelBase}>STEP NAME</label>
+          <label className="text-[10.5px] text-muted font-semibold tracking-[0.1em] mb-1.5 block uppercase">
+            Step Name
+          </label>
           <input
             value={name}
             onChange={e => { setName(e.target.value); setErr("") }}
             placeholder="e.g. Search Emails"
-            style={inputBase}
-            onFocus={e => ((e.target as HTMLInputElement).style.borderColor = C.accent + "66")}
-            onBlur={e => ((e.target as HTMLInputElement).style.borderColor = C.border2)}
+            className="glass-input w-full text-[13.5px] text-primary px-3.5 py-2.5 rounded-lg"
           />
         </div>
 
-        {/* Integration selector — dynamic pill buttons */}
+        {/* Integration selector */}
         <div>
-          <label style={labelBase}>INTEGRATION</label>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <label className="text-[10.5px] text-muted font-semibold tracking-[0.1em] mb-1.5 block uppercase">
+            Integration
+          </label>
+          <div className="flex gap-2 flex-wrap">
             {INTEGRATIONS.map(int => {
               const active = integration === int
               return (
                 <button
                   key={int}
                   onClick={() => handleIntChange(int)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 7,
-                    padding: "6px 14px",
-                    borderRadius: 8,
-                    border: `1px solid ${active ? C.accent + "88" : C.border2}`,
-                    background: active ? C.accent + "18" : "transparent",
-                    color: active ? C.accentL : C.muted,
-                    fontSize: 12,
-                    fontWeight: active ? 600 : 400,
-                    cursor: "pointer",
-                    transition: "all .15s",
-                  }}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12.5px] cursor-pointer transition-all duration-150 ${
+                    active
+                      ? "border-accent/40 bg-accent/10 text-accent-l font-medium"
+                      : "border-white/8 bg-transparent text-muted hover:bg-white/5 hover:border-white/12"
+                  }`}
                 >
                   <IntChip name={int} size={18} />
                   {INT_CATALOG[int].label}
@@ -236,28 +190,23 @@ export function StepEditor({ step, onSave, onClose }: StepEditorProps) {
           </div>
         </div>
 
-        {/* Action selector — updates dynamically when integration changes */}
+        {/* Action selector */}
         <div>
-          <label style={labelBase}>ACTION</label>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <label className="text-[10.5px] text-muted font-semibold tracking-[0.1em] mb-1.5 block uppercase">
+            Action
+          </label>
+          <div className="flex gap-1.5 flex-wrap">
             {actions.map(act => {
               const active = action === act
               return (
                 <button
                   key={act}
                   onClick={() => handleActionChange(act)}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: 6,
-                    border: `1px solid ${active ? C.accent + "66" : C.border2}`,
-                    background: active ? C.accent + "18" : "transparent",
-                    color: active ? C.accentL : C.muted,
-                    fontSize: 11,
-                    fontWeight: active ? 600 : 400,
-                    cursor: "pointer",
-                    fontFamily: "ui-monospace, 'Cascadia Code', monospace",
-                    transition: "all .15s",
-                  }}
+                  className={`px-3 py-1 rounded-md border text-[11.5px] cursor-pointer font-mono transition-all duration-150 ${
+                    active
+                      ? "border-accent/35 bg-accent/10 text-accent-l font-semibold"
+                      : "border-white/8 bg-transparent text-muted hover:bg-white/5 hover:border-white/12"
+                  }`}
                 >
                   {act}
                 </button>
@@ -266,27 +215,23 @@ export function StepEditor({ step, onSave, onClose }: StepEditorProps) {
           </div>
         </div>
 
-        {/* Params JSON editor — pre-filled from action defaults */}
+        {/* Params */}
         <div>
-          <label style={labelBase}>PARAMETERS (JSON)</label>
+          <label className="text-[10.5px] text-muted font-semibold tracking-[0.1em] mb-1.5 block uppercase">
+            Parameters (JSON)
+          </label>
           <textarea
             value={paramsRaw}
             onChange={e => { setParamsRaw(e.target.value); setErr("") }}
             spellCheck={false}
-            style={{
-              ...inputBase,
-              minHeight: 150,
-              fontFamily: "ui-monospace, 'Cascadia Code', monospace",
-              fontSize: 12,
-              resize: "vertical",
-              lineHeight: 1.65,
-              borderColor: err.includes("JSON") ? C.danger : C.border2,
-            }}
+            className={`glass-input w-full min-h-[150px] font-mono text-[12px] resize-y leading-relaxed px-3.5 py-2.5 rounded-lg ${
+              err.includes("JSON") ? "!border-danger" : ""
+            }`}
           />
-          {err && <div style={{ color: C.danger, fontSize: 12, marginTop: 5 }}>{err}</div>}
+          {err && <div className="text-danger text-[12px] mt-1.5">{err}</div>}
         </div>
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <div className="flex gap-2 justify-end">
           <Btn variant="ghost" onClick={onClose} small>Cancel</Btn>
           <Btn onClick={save} small>{isNew ? "Add Step" : "Save Changes"}</Btn>
         </div>

@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react"
 import type { Execution, ExecutionLog, Workflow, ExecutionChatMessage } from "@/lib/types"
-import { C, statusColor, calcDuration, fmtDate } from "@/lib/utils"
+import { statusColor, calcDuration, fmtDate } from "@/lib/utils"
 import { Btn } from "@/components/ui/button"
 import { StepCard } from "./step-card"
 import * as api from "@/lib/api"
+import { Spinner } from "../ui/spinner"
 
 interface DoneViewProps {
   execution: Execution
@@ -21,14 +22,13 @@ export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBa
   const failed     = execution.status === "failed"
   const hasSkipped = logs.some(l => l.status === "skipped")
 
-  const resultColor = failed ? C.danger : hasSkipped ? C.warning : C.success
-  const resultIcon  = failed ? "✗" : hasSkipped ? "◎" : "✓"
+  const resultColor = failed ? "#ef4444" : hasSkipped ? "#f59e0b" : "#22c55e"
   const resultTitle = failed
     ? "Execution Failed"
-    : hasSkipped ? "Completed — No Results Found"
-    : "Execution Completed"
+    : hasSkipped ? "Completed — no results found"
+    : "Execution Complete"
 
-  // ── Chat state ──────────────────────────────────────────────────────────────
+  // Chat state
   const [messages, setMessages]   = useState<ExecutionChatMessage[]>([])
   const [input, setInput]         = useState("")
   const [sending, setSending]     = useState(false)
@@ -69,29 +69,25 @@ export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBa
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="flex flex-col gap-5">
       <Btn variant="ghost" small onClick={onBack} style={{ alignSelf: "flex-start" }}>
         ← Back
       </Btn>
 
       {/* Result banner */}
-      <div style={{
-        background: resultColor + "0c",
-        border: `1px solid ${resultColor}33`,
-        borderRadius: 12, padding: "18px 22px",
-        display: "flex", alignItems: "center", gap: 18,
-      }}>
-        <div style={{
-          width: 44, height: 44, borderRadius: 12,
-          background: resultColor + "22",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 20, color: resultColor, flexShrink: 0,
-        }}>
-          {resultIcon}
+      <div
+        className="glass-card-static rounded-2xl p-5 flex items-center gap-4"
+        style={{ borderColor: resultColor + "22" }}
+      >
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 font-bold"
+          style={{ background: resultColor + "12", color: resultColor }}
+        >
+          {failed ? "✗" : hasSkipped ? "◎" : "✓"}
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: C.text }}>{resultTitle}</div>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-[15px] text-primary">{resultTitle}</div>
+          <div className="text-[12.5px] text-muted mt-0.5">
             {workflow.name}
             {calcDuration(execution.started_at, execution.completed_at)
               ? ` · ${calcDuration(execution.started_at, execution.completed_at)}`
@@ -99,23 +95,23 @@ export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBa
             {execution.started_at ? ` · ${fmtDate(execution.started_at)}` : ""}
           </div>
           {execution.error && (
-            <div style={{ color: C.danger, fontSize: 12, marginTop: 6, fontFamily: "monospace" }}>
-              {execution.error}
-            </div>
+            <div className="text-danger text-[12px] mt-1 font-mono truncate">{execution.error}</div>
           )}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+        <div className="flex flex-col gap-2 shrink-0">
           {failed && <Btn variant="warning" onClick={onResume} small>↺ Resume</Btn>}
-          <Btn variant={failed ? "ghost" : "success"} onClick={onRunAgain} small>▶ Run Again</Btn>
+          <Btn variant={failed ? "ghost" : "success"} onClick={onRunAgain} small>
+            {failed ? "Try Again" : "▶ Run Again"}
+          </Btn>
         </div>
       </div>
 
       {/* Step results */}
       <div>
-        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 10 }}>
-          STEP RESULTS
+        <div className="text-[11px] text-muted font-semibold tracking-[0.1em] uppercase mb-3">
+          Step Results
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="flex flex-col gap-2">
           {steps.map((step, i) => {
             const stepLogs = logs.filter(l => l.step_index === i)
             const log = stepLogs.at(-1)
@@ -137,75 +133,44 @@ export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBa
         </div>
       </div>
 
-      {/* ── Execution chat ───────────────────────────────────────────────────── */}
-      <div style={{
-        background: C.surface,
-        border: `1px solid ${C.border}`,
-        borderRadius: 12,
-        overflow: "hidden",
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: "12px 16px",
-          borderBottom: `1px solid ${C.border}`,
-          display: "flex", alignItems: "center", gap: 10,
-        }}>
-          <div style={{
-            width: 28, height: 28, borderRadius: 8,
-            background: C.accent + "22",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 14, color: C.accent,
-          }}>
+      {/* Ask about this run */}
+      <div className="glass-card-static rounded-2xl overflow-hidden">
+        <div className="px-4 py-3.5 border-b border-white/[0.06] flex items-center gap-3">
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[13px]"
+            style={{ background: "rgba(99,102,241,0.12)", color: "#818cf8" }}
+          >
             ✦
           </div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Ask about this run</div>
-            <div style={{ fontSize: 11, color: C.muted }}>
-              Ask Aiden what happened, what data was produced, or what to fix
+            <div className="text-[13px] font-semibold text-primary">Ask about this run</div>
+            <div className="text-[12px] text-muted">
+              What happened, what data was produced, what to fix
             </div>
           </div>
         </div>
 
-        {/* Message history */}
-        <div style={{
-          height: messages.length === 0 ? 80 : 320,
-          overflowY: "auto",
-          padding: "12px 16px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          transition: "height 0.2s",
-        }}>
+        {/* Messages */}
+        <div
+          className="overflow-y-auto px-4 py-3 flex flex-col gap-2.5 transition-all duration-200"
+          style={{ height: messages.length === 0 ? 72 : 300 }}
+        >
           {messages.length === 0 ? (
-            <div style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              height: "100%", gap: 8,
-            }}>
-              <span style={{ fontSize: 12, color: C.muted }}>
-                Ask anything about what this workflow did — emails found, data written, errors, etc.
+            <div className="flex items-center justify-center h-full">
+              <span className="text-[12.5px] text-subtle text-center">
+                Ask anything — emails found, data written, errors, next steps…
               </span>
             </div>
           ) : (
             messages.map((m, i) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  justifyContent: m.role === "user" ? "flex-end" : "flex-start",
-                }}
-              >
-                <div style={{
-                  maxWidth: "80%",
-                  padding: "8px 12px",
-                  borderRadius: m.role === "user" ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
-                  background: m.role === "user" ? C.accent : C.canvas,
-                  border: m.role === "user" ? "none" : `1px solid ${C.border}`,
-                  color: m.role === "user" ? "#fff" : C.text,
-                  fontSize: 13,
-                  lineHeight: 1.55,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}>
+              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div
+                  className={`max-w-[80%] px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
+                    m.role === "user"
+                      ? "text-white rounded-[12px_12px_4px_12px]"
+                      : "glass-card-static rounded-[12px_12px_12px_4px] text-primary"
+                  }`}
+                  style={m.role === "user" ? { background: "#6366f1" } : {}}
+                >
                   {m.content}
                 </div>
               </div>
@@ -213,64 +178,32 @@ export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBa
           )}
 
           {sending && (
-            <div style={{ display: "flex", justifyContent: "flex-start" }}>
-              <div style={{
-                padding: "8px 14px",
-                borderRadius: "12px 12px 12px 4px",
-                background: C.canvas,
-                border: `1px solid ${C.border}`,
-                color: C.muted,
-                fontSize: 13,
-              }}>
-                <span style={{ letterSpacing: 2 }}>···</span>
+            <div className="flex justify-start">
+              <div className="glass-card-static rounded-[12px_12px_12px_4px] px-3.5 py-2.5 text-muted text-[13px] flex items-center gap-2">
+                <Spinner size={12} /> <span className="tracking-[2px] text-subtle">···</span>
               </div>
             </div>
           )}
 
           {chatError && (
-            <div style={{
-              fontSize: 12, color: C.danger,
-              padding: "6px 10px",
-              background: C.danger + "10",
-              borderRadius: 6,
-            }}>
+            <div className="text-[12px] text-danger rounded-md px-2.5 py-1.5"
+              style={{ background: "rgba(239,68,68,0.07)" }}
+            >
               {chatError}
             </div>
           )}
-
           <div ref={bottomRef} />
         </div>
 
         {/* Input */}
-        <div style={{
-          borderTop: `1px solid ${C.border}`,
-          padding: "10px 12px",
-          display: "flex",
-          gap: 8,
-          alignItems: "flex-end",
-        }}>
+        <div className="border-t border-white/[0.06] px-3 py-2.5 flex gap-2 items-end">
           <textarea
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKey}
             placeholder="What emails did it find? Why did step 2 fail? …"
             rows={1}
-            style={{
-              flex: 1,
-              background: C.canvas,
-              border: `1px solid ${C.border2}`,
-              borderRadius: 8,
-              padding: "8px 12px",
-              color: C.text,
-              fontSize: 13,
-              resize: "none",
-              outline: "none",
-              fontFamily: "inherit",
-              lineHeight: 1.5,
-              minHeight: 36,
-              maxHeight: 120,
-              overflowY: "auto",
-            }}
+            className="glass-input flex-1 px-3 py-2 text-[13px] resize-none leading-relaxed min-h-[36px] max-h-[120px] overflow-y-auto"
           />
           <Btn
             variant="primary"

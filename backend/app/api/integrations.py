@@ -8,7 +8,7 @@ POST /api/integrations/slack               — save a Slack bot token
 DELETE /api/integrations/{integration}     — disconnect (delete stored credentials)
 """
 import os
-from datetime import datetime, UTC
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -18,6 +18,10 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.database import get_db
 from app.workflow.db_models import IntegrationCredential
+from app.workflow.integrations.credential_store import (
+    save_integration_credentials,
+    delete_integration_credentials,
+)
 
 router = APIRouter()
 
@@ -36,28 +40,6 @@ class SlackTokenRequest(BaseModel):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _upsert_credential(db: Session, integration: str, data: dict) -> None:
-    now = datetime.now(UTC)
-    existing = (
-        db.query(IntegrationCredential)
-        .filter(IntegrationCredential.integration == integration)
-        .first()
-    )
-    if existing:
-        existing.credential_data = data
-        existing.status = "connected"
-        existing.updated_at = now
-    else:
-        db.add(IntegrationCredential(
-            integration=integration,
-            credential_data=data,
-            status="connected",
-            connected_at=now,
-            updated_at=now,
-        ))
-    db.commit()
-
 
 def _redirect_uri(s) -> str:
     return f"http://localhost:{s.backend_port}/api/integrations/google/callback"
@@ -126,7 +108,7 @@ def google_connect():
 
 
 @router.get("/google/callback", response_class=HTMLResponse)
-def google_callback(code: str, db: Session = Depends(get_db)):
+def google_callback(code: str):
     """
     Receive the OAuth authorization code from Google, exchange it for tokens,
     save them for both gmail and sheets, then close the popup window.
@@ -177,7 +159,7 @@ def google_callback(code: str, db: Session = Depends(get_db)):
 
     # Gmail and Sheets share the same OAuth token
     for integration in ("gmail", "sheets"):
-        _upsert_credential(db, integration, credential_data)
+        save_integration_credentials(integration, credential_data)
 
     frontend_url = s.cors_origins.split(",")[0].strip()
 
@@ -216,7 +198,7 @@ def google_callback(code: str, db: Session = Depends(get_db)):
 
 
 @router.post("/slack")
-def save_slack_token(req: SlackTokenRequest, db: Session = Depends(get_db)):
+def save_slack_token(req: SlackTokenRequest):
     """Validate and save a Slack bot token."""
     token = req.bot_token.strip()
     if not token.startswith("xoxb-"):
@@ -232,14 +214,13 @@ def save_slack_token(req: SlackTokenRequest, db: Session = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Token validation failed: {exc}")
 
-    _upsert_credential(db, "slack", {"bot_token": token})
+    save_integration_credentials("slack", {"bot_token": token})
     return {"integration": "slack", "connected": True}
 
 
 @router.delete("/{integration}")
-def disconnect_integration(integration: str, db: Session = Depends(get_db)):
+def disconnect_integration(integration: str):
     """Delete stored credentials for an integration (or 'google' to remove both gmail+sheets)."""
-    targets: list[str]
     if integration == "google":
         targets = ["gmail", "sheets"]
     elif integration in MANAGED_INTEGRATIONS:
@@ -248,8 +229,5 @@ def disconnect_integration(integration: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"Unknown integration: {integration}")
 
     for name in targets:
-        db.query(IntegrationCredential).filter(
-            IntegrationCredential.integration == name
-        ).delete()
-    db.commit()
+        delete_integration_credentials(name)
     return {"disconnected": targets}

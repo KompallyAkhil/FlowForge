@@ -1,15 +1,6 @@
 import type { CSSProperties, ReactNode } from "react"
-import { C } from "@/lib/utils"
 
 export type BtnVariant = "primary" | "ghost" | "danger" | "success" | "warning"
-
-const STYLES: Record<BtnVariant, { bg: string; fg: string; bd: string; gradient?: boolean }> = {
-  primary: { bg: C.accent,         fg: "#fff",      bd: "transparent",      gradient: true },
-  ghost:   { bg: "transparent",    fg: C.text,      bd: C.border2 },
-  danger:  { bg: C.danger + "15",  fg: C.danger,    bd: C.danger + "44" },
-  success: { bg: C.success + "15", fg: C.success,   bd: C.success + "44" },
-  warning: { bg: C.warning + "15", fg: C.warning,   bd: C.warning + "44" },
-}
 
 interface BtnProps {
   children: ReactNode
@@ -24,37 +15,41 @@ interface BtnProps {
 export function Btn({
   children, onClick, variant = "primary", disabled, small, style: sx, type = "button",
 }: BtnProps) {
-  const s = STYLES[variant]
-  const isGradient = s.gradient && !disabled
+  const base = [
+    "inline-flex items-center gap-1.5 font-medium whitespace-nowrap transition-all duration-150 ease-out",
+    small ? "px-3 py-1.5 text-[12px] rounded-lg" : "px-4 py-2 text-[13px] rounded-xl",
+    disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer",
+  ].join(" ")
+
+  if (variant === "primary" && !disabled) {
+    return (
+      <button
+        type={type}
+        onClick={onClick}
+        disabled={disabled}
+        className={`${base} btn-gradient text-white font-semibold`}
+        style={sx}
+      >
+        {children}
+      </button>
+    )
+  }
+
+  const variants: Record<BtnVariant, string> = {
+    primary: "bg-surface text-subtle border border-border",
+    ghost:   "btn-ghost",
+    danger:  "bg-danger/8 text-danger border border-danger/20 hover:bg-danger/14 hover:border-danger/35",
+    success: "bg-success/8 text-success border border-success/20 hover:bg-success/14 hover:border-success/35",
+    warning: "bg-warning/8 text-warning border border-warning/20 hover:bg-warning/14 hover:border-warning/35",
+  }
 
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={isGradient ? "btn-gradient" : undefined}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: small ? "5px 12px" : "8px 16px",
-        background: disabled ? C.surface : s.bg,
-        color: disabled ? C.subtle : s.fg,
-        border: `1px solid ${disabled ? C.border : s.bd}`,
-        borderRadius: 8,
-        cursor: disabled ? "not-allowed" : "pointer",
-        fontSize: small ? 12 : 13,
-        fontWeight: 500,
-        fontFamily: "inherit",
-        whiteSpace: "nowrap",
-        ...sx,
-      }}
-      onMouseEnter={e => {
-        if (!disabled && !isGradient) (e.currentTarget as HTMLButtonElement).style.opacity = ".82"
-      }}
-      onMouseLeave={e => {
-        if (!disabled && !isGradient) (e.currentTarget as HTMLButtonElement).style.opacity = "1"
-      }}
+      className={`${base} ${variants[variant]}`}
+      style={sx}
     >
       {children}
     </button>

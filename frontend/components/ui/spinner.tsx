@@ -1,17 +1,12 @@
-import { C } from "@/lib/utils"
-
 export function Spinner({ size = 14 }: { size?: number }) {
   return (
     <span
-      className="anim-spin"
+      className="anim-spin inline-block shrink-0 rounded-full"
       style={{
-        display: "inline-block",
         width: size,
         height: size,
-        border: `2px solid ${C.border2}`,
-        borderTopColor: C.accentL,
-        borderRadius: "50%",
-        flexShrink: 0,
+        border: `2px solid rgba(255,255,255,0.08)`,
+        borderTopColor: "#818cf8",
       }}
     />
   )

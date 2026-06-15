@@ -159,6 +159,13 @@ def _save_version(
     return ver
 
 
+# ── Public version helpers ────────────────────────────────────────────────────
+
+def save_step_version(db: Session, wf: Workflow, change_summary: str) -> WorkflowVersion:
+    """Public wrapper used by step-level CRUD endpoints to record a version snapshot."""
+    return _save_version(db, wf, change_summary, None)
+
+
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 
 def create_workflow(db: Session, original_input: str, definition: WorkflowDefinition) -> Workflow:

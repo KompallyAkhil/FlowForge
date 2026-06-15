@@ -128,14 +128,6 @@ class ExecuteRequest(BaseModel):
     start_from_step: int = 0  # 0 = full run; N = skip steps 0..N-1
 
 
-class WorkflowChatRequest(BaseModel):
-    message: str = Field(min_length=1, max_length=2000)
-
-
-class WorkflowChatResponse(BaseModel):
-    reply: str
-    workflow_json: dict[str, Any]
-
 
 class ExecutionLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

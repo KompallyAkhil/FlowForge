@@ -1,5 +1,3 @@
-import { C } from "@/lib/utils"
-
 const INTEGRATIONS = [
   { abbr: "GM", color: "#ea4335", name: "Gmail",         desc: "Search, read and send emails" },
   { abbr: "AI", color: "#8b5cf6", name: "AI Processing", desc: "Summarize, extract and transform" },
@@ -9,32 +7,26 @@ const INTEGRATIONS = [
 
 export function IntegrationCards() {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+    <div className="grid grid-cols-2 gap-2.5">
       {INTEGRATIONS.map(it => (
         <div
           key={it.name}
-          style={{
-            display: "flex", gap: 12, alignItems: "flex-start",
-            background: C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 10, padding: "13px 14px",
-            transition: "border-color .15s",
-          }}
-          onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.borderColor = it.color + "44"}
-          onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.borderColor = C.border}
+          className="glass-card flex gap-3 items-start p-3.5 int-card-hover cursor-default"
         >
-          <div style={{
-            width: 36, height: 36, borderRadius: 9,
-            background: it.color + "18",
-            border: `1px solid ${it.color}30`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 11, fontWeight: 800, color: it.color, flexShrink: 0,
-          }}>
+          <div
+            className="w-9 h-9 rounded-lg flex items-center justify-center text-[11px] font-extrabold shrink-0 backdrop-blur-sm"
+            style={{
+              background: it.color + "14",
+              border: `1px solid ${it.color}25`,
+              color: it.color,
+              boxShadow: `0 0 12px ${it.color}08`,
+            }}
+          >
             {it.abbr}
           </div>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{it.name}</div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>{it.desc}</div>
+            <div className="font-semibold text-[13px] text-primary">{it.name}</div>
+            <div className="text-[11px] text-muted mt-0.5 leading-relaxed">{it.desc}</div>
           </div>
         </div>
       ))}
