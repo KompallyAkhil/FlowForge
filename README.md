@@ -185,7 +185,7 @@ Supports mid-workflow resume: `create_execution_from_step` seeds prior step outp
 | `_dispatch(action, params)` | Yes | Route action string to the correct handler |
 | `_classify_error(exc)` | No | Map exceptions to `ErrorCategory` |
 | `_recover_fixable(action, params, exc)` | No | Pure-Python fix before the LLM agent is invoked |
-| `_get_recovery_tools()` | No | `@tool`-decorated discovery functions the LangGraph agent may call |
+| `_get_recov ools()` | No | `@tool`-decorated discovery functions the LangGraph agent may call |
 | `get_agent_tools()` | No | LangChain tools exposed to the ReAct agent |
 
 `IntegrationRegistry` is a class-level registry — each integration calls `IntegrationRegistry.register()` on import. The dynamic planner prompt, agent tool list, and configured-resource display all read from this registry.

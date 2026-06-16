@@ -145,10 +145,11 @@ Each adapter (gmail, slack, sheets) checks the DB first via `credential_store`, 
 
 ### Execution engine (`execution_engine.py`)
 
-3-layer failure recovery:
-1. **Engine retry** — configurable `max_retries` per step
-2. **Rate-limit backoff** — exponential back-off on 429/rate-limit errors
-3. **LangGraph agent** — `workflow/agent/failure_agent.py` attempts to fix/route around persistent failures
+4-layer failure recovery (in order):
+1. **`BaseIntegration._recover_fixable()`** — pure-Python fix per adapter (e.g. re-search inbox for valid IDs, fuzzy-match tab names) before any LLM is involved
+2. **`BaseIntegration._run_recovery_agent()`** — inline LangGraph `StateGraph` scoped to the adapter; uses tools from `_get_recovery_tools()` (e.g. `list_channels`, `list_sheets`) to find the correct resource and retry
+3. **Engine retry** — `MAX_RETRIES = 1` raw re-attempt after both adapter-level recovery layers have failed
+4. **`failure_agent.py`** — full LangGraph ReAct agent with 3 tools (`inspect_previous_outputs`, `get_config_defaults`, `try_execute_step`); up to `MAX_FIX_ATTEMPTS` (default 2) rounds; skipped entirely on rate-limit errors
 
 Writes an `ExecutionLog` row per step with `status`, `error`, `retry_count`, `input_data`, `output_data`.
 
@@ -205,6 +206,7 @@ The system prompt is **built dynamically** via `_build_system_prompt()` which pu
 | `EXECUTION_CHAT_SYSTEM` | System prompt for post-execution chat (injected with workflow + results context) |
 | `CHAT_ASSISTANT_SYSTEM` | System prompt for the Flo general chat assistant |
 | `AGENT_INTRO` | System prompt prefix for the LangGraph ReAct agent |
+| `FAILURE_AGENT_SYSTEM` | System prompt for the LangGraph failure-recovery agent (`failure_agent.py`) |
 
 `PLANNER_CHAINING_RULES` encodes explicit multi-step patterns:
 
