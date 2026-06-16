@@ -1,11 +1,12 @@
 import uuid
-from datetime import datetime, UTC
+from datetime import datetime, UTC  # UTC used by approve/reject/schedule/step endpoints
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.workflow.schemas import (
     ApproveRequest,
     RejectRequest,
+    ReplanRequest,
     CreateWorkflowRequest,
     UpdateWorkflowRequest,
     ScheduleUpdateRequest,
@@ -87,11 +88,6 @@ def update_workflow(
         raise HTTPException(status_code=422, detail=str(exc))
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    # Any edit resets the workflow back to draft — requires re-approval
-    wf.status = "draft"
-    wf.updated_at = datetime.now(UTC)
-    db.commit()
-    db.refresh(wf)
     return _enrich(wf)
 
 
@@ -292,24 +288,31 @@ def delete_step(
 # ── Re-plan with AI ──────────────────────────────────────────────────────────
 
 @router.post("/{workflow_id}/replan", response_model=WorkflowResponse)
-async def replan_workflow(workflow_id: str, db: Session = Depends(get_db)):
-    """Re-invoke the LLM planner with the workflow's original natural language input.
+async def replan_workflow(
+    workflow_id: str,
+    req: ReplanRequest,
+    db: Session = Depends(get_db),
+):
+    """Re-invoke the LLM planner.
 
-    Replaces the current steps/trigger/explanation with a freshly generated plan,
-    saves a new version snapshot, and resets status to draft for re-review.
+    If req.new_query is provided, plans with that text and stores it as the new
+    original_input (so future replans without a query keep the updated intent).
+    Otherwise replans with the stored original_input unchanged.
+    Replaces steps/trigger/explanation, saves a version snapshot, resets to draft.
     """
     wf = _get_or_404(db, workflow_id)
+    query = req.new_query.strip() if req.new_query else wf.original_input
     try:
-        definition = await plan_workflow(wf.original_input)
+        definition = await plan_workflow(query)
         updated = workflow_engine.update_workflow(db, workflow_id, wf.name, definition)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     if not updated:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    updated.status = "draft"
-    updated.updated_at = datetime.now(UTC)
-    db.commit()
-    db.refresh(updated)
+    if req.new_query:
+        updated.original_input = query
+        db.commit()
+        db.refresh(updated)
     return _enrich(updated)
 
 

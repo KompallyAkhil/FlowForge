@@ -63,6 +63,11 @@ class RejectRequest(BaseModel):
     reason: str | None = None
 
 
+class ReplanRequest(BaseModel):
+    """Optional body for /replan — omit new_query to replan with the stored original_input."""
+    new_query: str | None = None
+
+
 class ScheduleUpdateRequest(BaseModel):
     schedule_enabled: bool
     schedule_timezone: str = "UTC"

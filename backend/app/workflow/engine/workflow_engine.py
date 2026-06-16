@@ -225,6 +225,8 @@ def update_workflow(
             cron_expr = definition.trigger.condition or ""
             register_workflow_schedule(wf.id, cron_expr, wf.schedule_timezone)
 
+    # Any edit resets status to draft — requires re-approval before next execution
+    wf.status = "draft"
     wf.updated_at = datetime.now(UTC)
     db.commit()
     db.refresh(wf)

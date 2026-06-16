@@ -41,8 +41,11 @@ export const updateWorkflow = (
 export const deleteWorkflow = (id: string): Promise<void> =>
   req(`/api/workflows/${id}`, { method: "DELETE" })
 
-export const replanWorkflow = (id: string): Promise<Workflow> =>
-  req(`/api/workflows/${id}/replan`, { method: "POST" })
+export const replanWorkflow = (id: string, newQuery?: string): Promise<Workflow> =>
+  req(`/api/workflows/${id}/replan`, {
+    method: "POST",
+    body: JSON.stringify({ new_query: newQuery ?? null }),
+  })
 
 // Workflow review — approve / reject
 export const approveWorkflow = (

@@ -151,7 +151,12 @@ class AIToolsIntegration(BaseIntegration):
                 {
                     "name": "extract",
                     "params": {"text": "${step_N.body}", "fields": ["field_a", "field_b"]},
-                    "output": {"extracted": {"field_a": "value"}, "fields": ["..."]},
+                    "output": {"field_a": "value", "field_b": "value", "extracted": {"field_a": "value", "field_b": "value"}, "fields": ["..."]},
+                    "output_note": (
+                        "→ Extracted fields are available DIRECTLY at the top level — use ${step_N.field_a}, ${step_N.amount}, etc.\n"
+                        "  Example: fields=[\"amount\", \"date\", \"description\"] → reference as ${step_N.amount}, ${step_N.date}\n"
+                        "  Do NOT write ${step_N.extracted.amount} — the top-level shortcut always works."
+                    ),
                 },
                 {
                     "name": "transform",
@@ -230,7 +235,11 @@ class AIToolsIntegration(BaseIntegration):
         )
         text = _to_text(raw).strip()
         if not text:
-            raise ValueError("'text' is required for ai.extract")
+            fields = params.get("fields", ["key_points", "action_items", "dates"])
+            field_list = fields if isinstance(fields, list) else [str(fields)]
+            empty: dict = {f: None for f in field_list}
+            return {**empty, "extracted": empty, "fields": field_list,
+                    "error": "No content to extract — the upstream step returned empty text."}
 
         s      = get_settings()
         fields = params.get("fields", ["key_points", "action_items", "dates"])
@@ -252,7 +261,10 @@ class AIToolsIntegration(BaseIntegration):
         except Exception:
             extracted = {"raw": raw}
 
-        return {"extracted": extracted, "fields": fields}
+        # Spread extracted fields to the top level so planner references like
+        # ${step_N.amount} resolve directly without needing ${step_N.extracted.amount}.
+        # The nested "extracted" key is kept for backward compatibility.
+        return {**extracted, "extracted": extracted, "fields": fields}
 
     def _transform(self, params: dict) -> dict:
         from app.core.llm import chat_complete

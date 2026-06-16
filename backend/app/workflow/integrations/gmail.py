@@ -232,16 +232,17 @@ class GmailIntegration(BaseIntegration):
                         "emails[].date, emails[].snippet — NO body, NO combined_text.\n"
                         "  You MUST add a follow-up step to get full content:\n"
                         "  • summarise multiple emails → NEXT step: read_emails_batch {emails: \"${step_N.emails}\"}\n"
-                        "    then ai.summarize {text: \"${step_N+1.combined_text}\"} where N+1 = read_emails_batch step number\n"
+                        "    then ai.summarize {text: \"${step_M.combined_text}\"} where M = the read_emails_batch step number\n"
                         "  • invoice/billing email   → NEXT step: extract_invoice {message_id: \"${step_N.emails[0].id}\"}\n"
                         "  • single email to read    → NEXT step: read_email {message_id: \"${step_N.emails[0].id}\"}\n"
                         "  NEVER reference ${step_N.combined_text} or ${step_N.body} from a search_emails step — "
-                        "those fields do not exist on its output."
+                        "those fields do not exist on its output.\n"
+                        "  N in all of the above = THIS search_emails step number."
                     ),
                 },
                 {
                     "name": "extract_invoice",
-                    "params": {"message_id": "${step_1.emails[0].id}"},
+                    "params": {"message_id": "${step_N.emails[0].id}"},
                     "output": {
                         "invoice_number": "INV-001",
                         "vendor":         "Acme Corp",
@@ -254,29 +255,35 @@ class GmailIntegration(BaseIntegration):
                         "from_email":     "billing@vendor.com",
                     },
                     "output_note": (
-                        "→ Use for invoice/billing emails. Returns structured fields you can chain directly:\n"
-                        "  ${step_N.vendor}, ${step_N.invoice_number}, ${step_N.amount}, ${step_N.currency},\n"
-                        "  ${step_N.due_date}, ${step_N.issue_date}, ${step_N.from_email}"
+                        "→ N = the search_emails step number. Use for invoice/billing emails.\n"
+                        "  Returns structured fields you can chain directly (M = this extract_invoice step):\n"
+                        "  ${step_M.vendor}, ${step_M.invoice_number}, ${step_M.amount}, ${step_M.currency},\n"
+                        "  ${step_M.due_date}, ${step_M.issue_date}, ${step_M.from_email}"
                     ),
                 },
                 {
                     "name": "read_emails_batch",
-                    "params": {"emails": "${step_1.emails}"},
+                    "params": {"emails": "${step_N.emails}"},
                     "output": {
                         "emails": [{"id": "...", "from": "...", "subject": "...", "body": "..."}],
                         "combined_text": "Email 1 from ...\\n---\\nbody...\\n\\nEmail 2 from ...",
                         "total": 2,
                     },
                     "output_note": (
-                        "→ Use when max_results > 1 or summarising multiple emails. "
-                        "Downstream ai.summarize uses ${step_N.combined_text}."
+                        "→ N = the search_emails step number (e.g. if search_emails is step_1, use ${step_1.emails}).\n"
+                        "  Use for 1 or more emails — handles both gracefully.\n"
+                        "  combined_text joins all email bodies. Downstream steps use ${step_M.combined_text} "
+                        "where M = this read_emails_batch step number."
                     ),
                 },
                 {
                     "name": "read_email",
-                    "params": {"message_id": "${step_1.emails[0].id}"},
+                    "params": {"message_id": "${step_N.emails[0].id}"},
                     "output": {"message_id": "...", "subject": "...", "from": "...", "body": "...", "snippet": "..."},
-                    "output_note": "→ Single email only. For multiple emails use read_emails_batch.",
+                    "output_note": (
+                        "→ N = the search_emails step number. Single email only. "
+                        "For multiple emails use read_emails_batch."
+                    ),
                 },
                 {
                     "name": "send_email",
@@ -466,11 +473,14 @@ class GmailIntegration(BaseIntegration):
             if email.get("error"):
                 parts.append(f"Email {i}: [Error: {email['error']}]")
             else:
+                body = email.get("body") or email.get("snippet", "")
+                # Always include subject + body so LLM has full context even for short emails
                 parts.append(
-                    f"Email {i} from {email.get('from', 'Unknown')}\n"
+                    f"Email {i}\n"
+                    f"From: {email.get('from', 'Unknown')}\n"
                     f"Subject: {email.get('subject', '')}\n"
                     f"Date: {email.get('date', '')}\n"
-                    f"---\n{email.get('body') or email.get('snippet', '')}"
+                    f"---\n{body}"
                 )
 
         return {
@@ -498,23 +508,46 @@ class GmailIntegration(BaseIntegration):
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _extract_body(self, payload: dict) -> str:
-        if payload.get("mimeType", "").startswith("text/plain") and payload.get("body", {}).get("data"):
-            return base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="replace")
+        mime = payload.get("mimeType", "")
+        data = payload.get("body", {}).get("data", "")
 
+        # Single-part text/plain
+        if mime.startswith("text/plain") and data:
+            return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+
+        # Single-part text/html (e.g. simple transactional emails with no multipart wrapper)
+        if mime.startswith("text/html") and data:
+            raw = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+            return self._strip_html(raw)
+
+        # Multipart — recurse into parts
         plain, html = "", ""
         for part in payload.get("parts", []):
-            mime = part.get("mimeType", "")
-            data = part.get("body", {}).get("data")
-            if mime == "text/plain" and data and not plain:
-                plain = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
-            elif mime == "text/html" and data and not html:
-                html = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
-            elif mime.startswith("multipart/"):
+            part_mime = part.get("mimeType", "")
+            part_data = part.get("body", {}).get("data")
+            if part_mime == "text/plain" and part_data and not plain:
+                plain = base64.urlsafe_b64decode(part_data).decode("utf-8", errors="replace")
+            elif part_mime == "text/html" and part_data and not html:
+                raw = base64.urlsafe_b64decode(part_data).decode("utf-8", errors="replace")
+                html = self._strip_html(raw)
+            elif part_mime.startswith("multipart/"):
                 nested = self._extract_body(part)
                 if nested and not plain:
                     plain = nested
 
         return plain or html or ""
+
+    @staticmethod
+    def _strip_html(html: str) -> str:
+        """Remove HTML tags and collapse whitespace for clean LLM input."""
+        text = re.sub(r"<style[^>]*>.*?</style>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<script[^>]*>.*?</script>", " ", text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"&nbsp;", " ", text)
+        text = re.sub(r"&amp;", "&", text)
+        text = re.sub(r"&lt;", "<", text)
+        text = re.sub(r"&gt;", ">", text)
+        return re.sub(r"\s+", " ", text).strip()
 
     def _collect_attachments(self, payload: dict, result: list) -> None:
         if payload.get("filename"):

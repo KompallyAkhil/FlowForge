@@ -25,7 +25,7 @@ FlowForge lets you describe a multi-step automation in plain English and turns i
 |---|---|
 | **Workflow planning** | Natural language → structured multi-step workflow via LLM |
 | **Review & approval** | Draft → review → approve/reject lifecycle before any execution |
-| **Step editing** | Add, edit, delete, and reorder steps in the UI before running |
+| **Query-driven replan** | Edit the automation description and click Re-plan to regenerate the entire workflow in one click |
 | **Execution engine** | Step runner with per-step retry, rate-limit backoff, and failure recovery |
 | **Step-output chaining** | `${step_N.field}` references pass outputs between steps at runtime |
 | **LangGraph agent** | Free-form ReAct agent for dynamic tool use (separate from the planner) |
@@ -47,10 +47,10 @@ FlowForge lets you describe a multi-step automation in plain English and turns i
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                        Browser  (Next.js · :3000)                        │
 │                                                                          │
-│   ┌─────────────┐   ┌────────────────┐   ┌──────────────────────────┐   │
-│   │  Workflow UI │   │  Agent Chat UI │   │   Aiden Chat Assistant   │   │
-│   │  (page.tsx) │   │  (app/agent/)  │   │   (api/chat + memory)    │   │
-│   └──────┬──────┘   └───────┬────────┘   └────────────┬─────────────┘   │
+│   ┌─────────────┐   ┌────────────────┐   ┌──────────────────────────┐    │
+│   │  Workflow UI│   │  Agent Chat UI │   │   Aiden Chat Assistant   │    │
+│   │  (page.tsx) │   │  (app/agent/)  │   │   (api/chat + memory)    │    │
+│   └──────┬──────┘   └───────┬────────┘   └────────────┬─────────────┘    │
 │          │                  │                         │                  │
 │          └──────────────────┴─────────────────────────┘                  │
 │                             │  REST / JSON                               │
@@ -60,10 +60,10 @@ FlowForge lets you describe a multi-step automation in plain English and turns i
 │                       FastAPI Backend  (:8000)                           │
 │                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                        API Layer (routers)                        │   │
+│  │                        API Layer (routers)                       │   │
 │  │  /api/workflows  /api/executions  /api/agent/runs                │   │
-│  │  /api/chat       /api/memory      /api/integrations              │   │
-│  └───────┬──────────────┬──────────────────────────────────────────┘   │
+│  │  /api/chat       /api/memory      /api/integrations  /api/tools  │   │
+│  └───────┬──────────────┬──────────────────────────────────────────-┘   │
 │          │              │                                               │
 │  ┌───────▼──────┐  ┌────▼─────────────────────────────────────────┐   │
 │  │  LLM Planner │  │              Execution Engine                  │   │
@@ -73,9 +73,10 @@ FlowForge lets you describe a multi-step automation in plain English and turns i
 │  └───────┬──────┘  │  └──────────┘  └────────────┘  └──────────┘  │   │
 │          │         └──────────────────────────┬────────────────────┘   │
 │  ┌───────▼─────────────────────────────────────▼──────────────────┐    │
-│  │                   LangGraph Agents                              │    │
-│  │   agentic_runner.py (ReAct · dynamic tool use)                 │    │
-│  │   failure_agent.py  (step-failure auto-patch)                  │    │
+│  │            LangGraph — 3 instantiation sites                    │    │
+│  │  agentic_runner.py — ReAct agent; invoked from /api/agent/runs  │    │
+│  │  failure_agent.py  — exec-engine failure path (retries > max)   │    │
+│  │  base.py inline    — per-adapter recovery graph on dispatch err  │    │
 │  └───────────────────────────┬─────────────────────────────────────┘   │
 │                              │                                          │
 │  ┌───────────────────────────▼─────────────────────────────────────┐   │
@@ -189,6 +190,8 @@ Supports mid-workflow resume: `create_execution_from_step` seeds prior step outp
 
 `IntegrationRegistry` is a class-level registry — each integration calls `IntegrationRegistry.register()` on import. The dynamic planner prompt, agent tool list, and configured-resource display all read from this registry.
 
+When `_recover_fixable()` cannot resolve a dispatch error on its own, `_run_recovery_agent()` builds a scoped `StateGraph` inline — one agent node paired with a `ToolNode` containing the tools from `_get_recovery_tools()`. This is the third LangGraph instantiation in the codebase, distinct from the standalone ReAct agent (`agentic_runner.py`) and the execution-level failure agent (`failure_agent.py`).
+
 #### `app/workflow/agent/agentic_runner.py` — LangGraph ReAct Agent
 
 A full LangGraph `StateGraph` with a `ToolNode`. Unlike the planner (which generates a fixed plan), this agent:
@@ -223,6 +226,7 @@ All system prompts live here to make tuning behaviour straightforward without to
 | `PLANNER_INTRO` … `PLANNER_OUTPUT_FORMAT` | Workflow planner (assembled by `_build_system_prompt`) |
 | `PLANNER_CHAINING_RULES` | Teaches the LLM correct `${step_N.field}` numbering |
 | `AGENT_INTRO` | ReAct agent system prompt prefix |
+| `FAILURE_AGENT_SYSTEM` | Failure recovery agent (`failure_agent.py`) |
 | `EXECUTION_CHAT_SYSTEM` | Post-execution contextual chat |
 | `CHAT_ASSISTANT_SYSTEM` | Aiden general chat |
 

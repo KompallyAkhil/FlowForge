@@ -162,6 +162,7 @@ interface WorkflowsContentProps {
   planError: string
   showHistory: boolean
   showVersions: boolean
+  reviewKey: number
   onQueryChange: (q: string) => void
   onPlan: () => void
   onToggleHistory: () => void
@@ -170,21 +171,19 @@ interface WorkflowsContentProps {
   onRun: () => void
   onHistorySelect: (ex: Execution) => void
   onApprove: (wf: Workflow) => Promise<void>
-  onSaveOnly: (wf: Workflow) => void
   onBack: () => void
   onRunAgain: (wf: Workflow) => void
   onResume: (id: string, wf: Workflow) => void
   onWorkflowUpdated: (wf: Workflow) => void
   onExecutionDone: (ex: Execution, logs: ExecutionLog[], wf: Workflow) => void
   onChatReview: (wf: Workflow) => void
-  onReplan: (wf: Workflow) => void
 }
 
 function WorkflowsContent({
-  selected, wfView, query, planning, planError, showHistory, showVersions,
+  selected, wfView, query, planning, planError, showHistory, showVersions, reviewKey,
   onQueryChange, onPlan, onToggleHistory, onToggleVersions, onEditSteps, onRun, onHistorySelect,
-  onApprove, onSaveOnly, onBack, onRunAgain, onResume, onWorkflowUpdated, onExecutionDone,
-  onChatReview, onReplan,
+  onApprove, onBack, onRunAgain, onResume, onWorkflowUpdated, onExecutionDone,
+  onChatReview,
 }: WorkflowsContentProps) {
 
   const pageTitle = () => {
@@ -211,16 +210,12 @@ function WorkflowsContent({
             onBack={onBack}
           />
           <ReviewView
-            key={(wfView as Extract<WfView, { type: "review" }>).workflow.updated_at}
+            key={`${(wfView as Extract<WfView, { type: "review" }>).workflow.id}-${reviewKey}`}
             workflow={wfView.workflow}
             onApprove={onApprove}
-            onSaveOnly={onSaveOnly}
             onBack={onBack}
             onWorkflowUpdated={onWorkflowUpdated}
-            onReplanned={updated => {
-              onWorkflowUpdated(updated)
-              onChatReview(updated)
-            }}
+            onReplanned={onChatReview}
           />
         </>
       )}
@@ -273,7 +268,6 @@ function WorkflowsContent({
                   {showVersions ? "← Back" : "Versions"}
                 </Btn>
                 <Btn small variant="ghost" onClick={onEditSteps}>Edit</Btn>
-                <Btn small variant="ghost" onClick={() => selected && onReplan(selected)}>Re-plan</Btn>
                 <Btn small onClick={onRun}>Run →</Btn>
               </div>
             </div>
@@ -466,6 +460,10 @@ function WorkflowApp() {
   const [showHistory, setShowHistory]   = useState(false)
   const [showVersions, setShowVersions] = useState(false)
   const [sideLoading, setSideLoading]   = useState(true)
+  // Incrementing counter used as part of ReviewView's key so we can force a
+  // remount (e.g. after replan) without relying on updated_at, which would
+  // remount on every save and discard in-progress local edits.
+  const [reviewKey, setReviewKey]       = useState(0)
 
   const loadWorkflows = useCallback(async () => {
     try { setWorkflows(await api.listWorkflows()) } catch { /* ignore */ }
@@ -489,11 +487,31 @@ function WorkflowApp() {
     finally { setPlanning(false) }
   }
 
+  // Update all copies of a workflow in state without touching ReviewView's local edits.
+  // When called while in review, also patches wfView.workflow so the prop stays fresh
+  // (key is id-based so this does NOT remount ReviewView or reset local step edits).
+  function syncWorkflow(updated: Workflow) {
+    setWorkflows(prev => prev.map(w => w.id === updated.id ? updated : w))
+    setSelected(updated)
+    setWfView(prev =>
+      prev.type === "review" && prev.workflow.id === updated.id
+        ? { type: "review", workflow: updated }
+        : prev
+    )
+  }
+
+  // Like syncWorkflow but also bumps reviewKey, which remounts ReviewView so the
+  // fresh steps from a replan replace any stale local state.
+  function syncWorkflowAndRemount(updated: Workflow) {
+    syncWorkflow(updated)
+    setReviewKey(k => k + 1)
+  }
+
   async function handleApprove(wf: Workflow): Promise<void> {
     const result = await api.approveWorkflow(wf.id, true) as Execution
     const approvedWf: Workflow = { ...wf, status: "approved" }
-    setSelected(approvedWf)
     setWorkflows(prev => prev.map(w => w.id === approvedWf.id ? approvedWf : w))
+    setSelected(approvedWf)
     setWfView({ type: "executing", executionId: result.id, workflow: approvedWf })
   }
 
@@ -512,8 +530,7 @@ function WorkflowApp() {
   }
 
   function handleSaveOnly(updated: Workflow) {
-    setSelected(updated)
-    setWorkflows(prev => prev.map(w => w.id === updated.id ? updated : w))
+    syncWorkflow(updated)
     setWfView({ type: "create" })
   }
 
@@ -527,14 +544,6 @@ function WorkflowApp() {
     setWfView({ type: "create" })
   }
 
-  async function handleReplan(wf: Workflow) {
-    try {
-      const updated = await api.replanWorkflow(wf.id)
-      setWorkflows(prev => prev.map(w => w.id === updated.id ? updated : w))
-      setSelected(updated)
-      setWfView({ type: "review", workflow: updated })
-    } catch (e) { alert(`Re-plan failed: ${String(e)}`) }
-  }
 
   async function handleDelete(wf: Workflow) {
     try {
@@ -568,6 +577,7 @@ function WorkflowApp() {
           planError={planError}
           showHistory={showHistory}
           showVersions={showVersions}
+          reviewKey={reviewKey}
           onQueryChange={setQuery}
           onPlan={handlePlan}
           onToggleHistory={() => { setShowHistory(x => !x); setShowVersions(false) }}
@@ -585,23 +595,17 @@ function WorkflowApp() {
             } catch (e) { alert(String(e)) }
           }}
           onApprove={handleApprove}
-          onSaveOnly={handleSaveOnly}
           onBack={() => setWfView({ type: "create" })}
           onRunAgain={handleRunAgain}
           onResume={handleResume}
-          onWorkflowUpdated={updated => {
-            setWorkflows(prev => prev.map(w => w.id === updated.id ? updated : w))
-            if (selected?.id === updated.id) setSelected(updated)
-          }}
+          onWorkflowUpdated={syncWorkflow}
           onExecutionDone={(ex, logs, wf) =>
             setWfView({ type: "done", execution: ex, logs, workflow: wf })
           }
           onChatReview={updated => {
-            setWorkflows(prev => prev.map(w => w.id === updated.id ? updated : w))
-            setSelected(updated)
+            syncWorkflowAndRemount(updated)
             setWfView({ type: "review", workflow: updated })
           }}
-          onReplan={handleReplan}
         />
       </main>
     </div>
