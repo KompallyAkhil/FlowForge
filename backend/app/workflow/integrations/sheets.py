@@ -121,6 +121,7 @@ class SheetsIntegration(BaseIntegration):
             "append_row":           self._append_row,
             "append_rows":          self._append_rows,
             "read_rows":            self._read_rows,
+            "read_all_sheets":      self._read_all_sheets,
             "update_cell":          self._update_cell,
             "create_sheet":         self._create_sheet,
             "search_rows":          self._search_rows,
@@ -254,28 +255,39 @@ class SheetsIntegration(BaseIntegration):
             "output_keywords": ['"save to Sheets"', '"log to Sheets"', '"add to spreadsheet"', '"track in sheets"'],
             "planner_notes": (
                 "append_row values must be a flat list of simple values, never a dict or nested object.\n"
-                "Always use ${today} for today's date — never write a hardcoded date string.\n"
-                "  Correct:   values: [\"${today}\", 78.3]\n"
-                "  Wrong:     values: [\"2026-06-15\", 78.3]\n"
                 "If the user names a sheet section (e.g. \"weight tracking\" or \"budget tab\"), set \"sheet\" to the closest tab name.\n"
-                "If no section is named, default to \"Sheet1\"."
+                "If no section is named, default to \"Sheet1\".\n"
+                "Use read_all_sheets when the user asks about the spreadsheet as a whole — "
+                "phrases like \"what does the sheet say\", \"summarize the spreadsheet\", \"what's in my sheets\", "
+                "\"tell me about all my sheets\". This reads every tab and returns combined_text.\n"
+                "Use read_rows only when the user names a specific tab."
             ),
             "chaining_examples": [
                 {
-                    "description": "Read Sheets data, summarize it, and send to Slack",
+                    "description": "Summarize ALL tabs in the spreadsheet and send to Slack",
                     "steps": [
-                        {"integration": "sheets", "action": "read_rows",     "params": {"sheet": "Sheet1"}},
-                        {"integration": "ai",     "action": "summarize",     "params": {"text": "${step_1.rows}"}},
-                        {"integration": "slack",  "action": "send_message",  "params": {"channel": "#general", "text": "${step_2.summary}"}},
+                        {"integration": "sheets", "action": "read_all_sheets", "params": {}},
+                        {"integration": "ai",     "action": "summarize",       "params": {"text": "${step_1.combined_text}"}},
+                        {"integration": "slack",  "action": "send_message",    "params": {"channel": "#general", "text": "${step_2.summary}"}},
+                    ],
+                    "note": "use read_all_sheets when user asks about 'the sheet' or 'all sheets' without naming a specific tab",
+                },
+                {
+                    "description": "Summarize ALL tabs and send by email",
+                    "steps": [
+                        {"integration": "sheets", "action": "read_all_sheets", "params": {}},
+                        {"integration": "ai",     "action": "summarize",       "params": {"text": "${step_1.combined_text}"}},
+                        {"integration": "gmail",  "action": "send_email",      "params": {"to": "recipient@example.com", "subject": "Spreadsheet Summary", "body": "${step_2.summary}"}},
                     ],
                 },
                 {
-                    "description": "Read Sheets data, summarize it, and send by email",
+                    "description": "Read a specific tab, summarize it, and send to Slack",
                     "steps": [
-                        {"integration": "sheets", "action": "read_rows",    "params": {"sheet": "Sheet1"}},
+                        {"integration": "sheets", "action": "read_rows",    "params": {"sheet": "Weight Tracking"}},
                         {"integration": "ai",     "action": "summarize",    "params": {"text": "${step_1.rows}"}},
-                        {"integration": "gmail",  "action": "send_email",   "params": {"to": "recipient@example.com", "subject": "Sheet Summary", "body": "${step_2.summary}"}},
+                        {"integration": "slack",  "action": "send_message", "params": {"channel": "#general", "text": "${step_2.summary}"}},
                     ],
+                    "note": "use read_rows only when user names a specific tab",
                 },
             ],
             "agent_strategy": (
@@ -312,7 +324,21 @@ class SheetsIntegration(BaseIntegration):
                         "  NEVER include 'range' in params — the engine computes the range from 'sheet'."
                     ),
                 },
-                {"name": "append_rows",          "params": {"sheet": "Sheet1", "rows": "${step_N.field}", "fields": ["name"]},        "output": None},
+                {"name": "append_rows", "params": {"sheet": "Sheet1", "rows": "${step_N.field}", "fields": ["name"]}, "output": None},
+                {
+                    "name": "read_all_sheets",
+                    "params": {},
+                    "output": {
+                        "combined_text": "=== Sheet1 ===\nDate, Weight\n...\n\n=== Diet ===\nMeal, Calories\n...",
+                        "sheets_read":   ["Sheet1", "Diet"],
+                        "total_sheets":  2,
+                    },
+                    "output_note": (
+                        "→ Reads EVERY tab and returns combined_text — one labelled block per tab.\n"
+                        "  Use this when the user asks about the spreadsheet as a whole.\n"
+                        "  Pass ${step_N.combined_text} to ai.summarize."
+                    ),
+                },
                 {
                     "name": "read_rows",
                     "params": {"sheet": "Sheet1"},
@@ -413,6 +439,28 @@ class SheetsIntegration(BaseIntegration):
             "total_sheets":   len(sheets),
         }
 
+    def _first_gap_row(self, spreadsheet_id: str, sheet: str) -> int | None:
+        """Return the 1-based row number of the first blank row after the initial
+        contiguous data block in column A.  Returns None on any API error so the
+        caller can fall back to the standard append API."""
+        try:
+            result = (
+                self.service.spreadsheets()
+                .values()
+                .get(spreadsheetId=spreadsheet_id, range=f"{sheet}!A:A")
+                .execute()
+            )
+            cells = result.get("values", [])
+            last_data_row = 0
+            for i, cell in enumerate(cells):
+                if cell and str(cell[0]).strip():
+                    last_data_row = i + 1  # 1-based
+                elif last_data_row > 0:
+                    break  # first blank after data — stop here
+            return last_data_row + 1  # row after the block (minimum 1)
+        except Exception:
+            return None
+
     def _append_row(self, params: dict) -> dict:
         spreadsheet_id = self._spreadsheet_id(params)
         sheet  = params.get("sheet", "Sheet1")
@@ -444,16 +492,44 @@ class SheetsIntegration(BaseIntegration):
         else:
             rows_to_write = [[_safe(c) for c in values]]
 
-        range_name = f"{sheet}!A1"
-        body       = {"values": rows_to_write}
+        # Find the end of the first contiguous data block in column A.
+        # This prevents inserting after unrelated content (e.g. profile info,
+        # BMI calculators) that sits below the main data table with empty rows
+        # between them. We stop at the first blank cell after data begins.
+        next_row = self._first_gap_row(spreadsheet_id, sheet)
+        body = {"values": rows_to_write}
 
+        if next_row is not None:
+            try:
+                result = (
+                    self.service.spreadsheets()
+                    .values()
+                    .update(
+                        spreadsheetId=spreadsheet_id,
+                        range=f"{sheet}!A{next_row}",
+                        valueInputOption="USER_ENTERED",
+                        body=body,
+                    )
+                    .execute()
+                )
+            except HttpError as e:
+                raise RuntimeError(f"Sheets append_row failed: {e}") from e
+            return {
+                "status":         "appended",
+                "spreadsheet_id": spreadsheet_id,
+                "sheet":          sheet,
+                "updated_range":  result.get("updatedRange", f"{sheet}!A{next_row}"),
+                "updated_rows":   result.get("updatedRows", len(rows_to_write)),
+            }
+
+        # Fallback: sheet is empty or column-A read failed — use append API.
         try:
             result = (
                 self.service.spreadsheets()
                 .values()
                 .append(
                     spreadsheetId=spreadsheet_id,
-                    range=range_name,
+                    range=sheet,
                     valueInputOption="USER_ENTERED",
                     insertDataOption="INSERT_ROWS",
                     body=body,
@@ -523,7 +599,7 @@ class SheetsIntegration(BaseIntegration):
         if not rows_to_write:
             raise ValueError("No rows to write — data resolved to an empty list")
 
-        range_name = f"{sheet}!A1"
+        range_name = sheet
         body = {"values": rows_to_write}
 
         try:
@@ -580,6 +656,54 @@ class SheetsIntegration(BaseIntegration):
             "headers":        headers,
             "rows":           rows,
             "total_rows":     len(rows),
+        }
+
+    def _read_all_sheets(self, params: dict) -> dict:
+        """Read every tab in the spreadsheet and return combined text."""
+        spreadsheet_id = self._spreadsheet_id(params)
+
+        # 1. Get list of all tab names
+        try:
+            meta = self.service.spreadsheets().get(
+                spreadsheetId=spreadsheet_id,
+                fields="sheets.properties.title",
+            ).execute()
+        except HttpError as e:
+            raise RuntimeError(f"Sheets read_all_sheets failed: {e}") from e
+
+        tab_names = [s["properties"]["title"] for s in meta.get("sheets", [])]
+        if not tab_names:
+            return {"combined_text": "", "sheets_read": [], "total_sheets": 0}
+
+        # 2. Read each tab and build a labelled text block
+        sections: list[str] = []
+        sheets_read: list[str] = []
+        for tab in tab_names:
+            try:
+                result = (
+                    self.service.spreadsheets()
+                    .values()
+                    .get(
+                        spreadsheetId=spreadsheet_id,
+                        range=tab,
+                        valueRenderOption="FORMATTED_VALUE",
+                    )
+                    .execute()
+                )
+                rows = result.get("values", [])
+                if not rows:
+                    continue
+                lines = [", ".join(str(c) for c in row) for row in rows]
+                sections.append(f"=== {tab} ===\n" + "\n".join(lines))
+                sheets_read.append(tab)
+            except HttpError:
+                continue  # skip tabs that can't be read (permission, hidden, etc.)
+
+        combined = "\n\n".join(sections)
+        return {
+            "combined_text": combined,
+            "sheets_read":   sheets_read,
+            "total_sheets":  len(sheets_read),
         }
 
     def _update_cell(self, params: dict) -> dict:

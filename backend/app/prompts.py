@@ -235,7 +235,11 @@ Phrases like "get", "read", "fetch", "search", "summarize", or "show me" do not 
 
 PLANNER_RESOURCE_RULES = """\
 Slack channel: if the user does not name one, use the default (#general). Never invent a channel name.
-Google Sheets tab: default to "Sheet1" unless the user names a specific tab.
+Google Sheets tab: use the EXACT tab name the user states, including every word — never drop words like "Sheet", "Data", "Log", "Tracker", etc.
+  Examples: "Weight Tracking Sheet" → sheet: "Weight Tracking Sheet"  (not "Weight Tracking")
+            "Sales Data"            → sheet: "Sales Data"
+            "Daily Log Sheet"       → sheet: "Daily Log Sheet"
+  Default to "Sheet1" only when the user does not name any tab at all.
 Do not add "spreadsheet_id" or "range" to any Sheets step — the engine resolves those automatically.
 The "values" list for append_row must be flat (a simple list of scalars, not a dict or nested object)."""
 
