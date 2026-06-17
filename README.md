@@ -100,7 +100,7 @@ flowchart TD
     end
 
     subgraph EXECUTE ["③ Execute  — one iteration per step"]
-        I --> J[Resolve step refs\n'${step_N.field}' two-pass expansion]
+        I --> J[Resolve step output refs\ntwo-pass expansion before each step]
         J --> K[Call integration adapter\ngmail · slack · sheets · ai · generic]
         K --> L{Success?}
         L -- Yes --> M[Write ExecutionLog\nstatus: success]
