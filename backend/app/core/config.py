@@ -1,3 +1,36 @@
+# =============================================================================
+# core/config.py — Centralized application settings via pydantic-settings
+#
+# All runtime configuration is declared here as a single Settings class.
+# Values are loaded from the backend/.env file automatically. The class
+# is wrapped in an lru_cache so Settings() is only constructed once per
+# process — every caller gets the same singleton instance.
+#
+# Key setting groups:
+
+#
+# AI provider selection:
+#   ai_provider = "openrouter" | "groq" | "anthropic"
+#   Each provider has its own key/model/URL fields. The factory functions
+#   in core/llm.py read ai_provider to decide which client to instantiate.
+#
+# LLM behaviour tuning (all have safe defaults):
+#   llm_temperature      — 0.0 for deterministic workflow planning
+#   max_execution_retries — rate-limit backoff attempts (not step retries)
+#   max_fix_attempts     — max retry_action calls in the recovery agent
+#   ai_tools_max_tokens  — cap for summarize/extract/transform outputs
+#   text_input_max_chars — truncation limit before sending text to an LLM
+#   planner_max_tokens   — cap for the workflow planning LLM call
+#   max_agent_steps      — safety cutoff for the LangGraph ReAct agent loop
+#
+# Integration credentials (app-level, not user-level):
+#   Google OAuth: GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET stay here.
+#   User tokens (refresh_token etc.) go into the DB via credential_store.
+#   Slack / Sheets env-var values are fallbacks when no DB credential exists.
+#
+# IMPORTANT: get_settings() uses lru_cache, so changes to .env require a
+# server restart to take effect.
+# =============================================================================
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 

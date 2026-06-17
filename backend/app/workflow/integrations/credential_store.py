@@ -1,9 +1,36 @@
-"""
-DB-backed credential store for integrations.
-Each integration (gmail, slack, sheets) stores its credentials as JSON in
-the integration_credentials table. Adapters call get_integration_credentials()
-before falling back to env-var values.
-"""
+# =============================================================================
+# workflow/integrations/credential_store.py — DB-backed credential store
+#
+# Provides the three functions that all integration adapters use to read and
+# write user-supplied credentials (OAuth tokens, API keys) at runtime.
+# Credentials are stored in the integration_credentials table as JSON blobs,
+# one row per integration name. This replaces hardcoded .env tokens for the
+# three managed integrations (gmail, slack, sheets).
+#
+# Each function opens its own DB session (does not share the request session)
+# because it may be called from background threads (execution engine) where
+# no request context exists.
+#
+# get_integration_credentials(integration) → dict | None
+#   Returns the credential_data JSON dict for the given integration if a
+#   "connected" row exists, or None if not found. Every integration adapter
+#   calls this first and falls back to env-var values if it returns None.
+#
+# save_integration_credentials(integration, data)
+#   Upserts: updates credential_data + status if the row exists, creates a
+#   new row otherwise. Called by api/integrations.py after a successful
+#   Google OAuth callback or Slack token validation.
+#
+# delete_integration_credentials(integration)
+#   Deletes the row for the given integration. Called by
+#   DELETE /api/integrations/{integration} to disconnect.
+#
+# Why open a new session per call?
+#   The execution engine runs in a background thread with its own SessionLocal.
+#   Sharing the request-scoped session across threads would cause SQLAlchemy
+#   thread-safety errors. The overhead of opening/closing a session per
+#   credential lookup is acceptable given how infrequently this runs.
+# =============================================================================
 import logging
 from datetime import datetime, UTC
 

@@ -1,12 +1,35 @@
-"""
-Dynamic workflow scheduler.
-
-Cron expressions are stored in `workflow_json.trigger.condition` by the LLM planner.
-This module reads them at runtime — no hardcoded schedules.
-
-Job store: MemoryJobStore (not SQLAlchemyJobStore) to avoid SQLite write contention.
-On startup, all schedule_enabled workflows are re-registered from the DB.
-"""
+# =============================================================================
+# scheduler/scheduler.py — APScheduler-based cron scheduler for workflows
+#
+# Manages a single BackgroundScheduler instance that fires workflow executions
+# at the times defined by their LLM-generated cron expressions. This runs
+# as a background thread inside the FastAPI process — no separate worker.
+#
+# Key design decisions:
+#   - MemoryJobStore (not SQLAlchemyJobStore) to avoid SQLite write contention
+#     with the main app. Jobs are re-loaded from the DB on every startup via
+#     load_scheduled_workflows().
+#   - coalesce=True + max_instances=1 ensures a workflow that missed a fire
+#     (e.g. server was down) only runs once on recovery, not for every missed slot.
+#   - misfire_grace_time=300 (5 min) — if APScheduler can't fire within 5 min
+#     of the scheduled time, it skips that fire rather than running late.
+#
+# Public API:
+#   start_scheduler()                    → called once in main.py lifespan
+#   stop_scheduler()                     → called on shutdown
+#   load_scheduled_workflows()           → re-registers all enabled workflows from DB
+#   register_workflow_schedule(id, cron) → adds/replaces a job for one workflow
+#   unschedule_workflow(id)              → removes a job (idempotent)
+#   get_next_run_time(id)                → returns next fire datetime or None
+#
+# _fire_workflow(workflow_id)
+#   The APScheduler callback. Runs in a thread pool worker. Opens its own DB
+#   session (can't share the request-scoped session) and calls
+#   execution_engine.run_scheduled_workflow() to create and run the execution.
+#
+# Cron format: 5-field standard cron (minute hour day month day_of_week).
+# The LLM planner writes this into workflow_json.trigger.condition.
+# =============================================================================
 
 import logging
 import re

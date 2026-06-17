@@ -1,12 +1,49 @@
-"""
-LangGraph ReAct agent — true dynamic tool calling.
-
-Unlike the static planner, this agent:
-  • receives the user's query
-  • dynamically decides which tools to call and in what order
-  • adapts based on actual intermediate results
-  • NEVER calls a tool the user didn't ask for (e.g. won't post to Slack if not asked)
-"""
+# =============================================================================
+# workflow/agent/agentic_runner.py — LangGraph ReAct agent (free-form tool use)
+#
+# A fully autonomous LangGraph agent that executes natural language tasks by
+# dynamically choosing and calling integration tools. Unlike the workflow engine
+# (which runs a pre-planned sequence of steps), this agent decides everything
+# at runtime based on the conversation so far.
+#
+# Architecture — the LangGraph graph:
+#   AgentState = {"messages": Annotated[list[BaseMessage], add_messages]}
+#   The entire shared state is a single append-only message list. Every node
+#   reads the full history and writes new messages back to it.
+#
+#   Nodes:
+#     "agent" (agent_node) — calls the LLM with the current message history.
+#       If the LLM response contains tool_calls, those are parsed by ToolNode.
+#       If max_agent_steps is reached, returns a hard-stop message instead.
+#     "tools" (ToolNode) — LangChain's prebuilt executor that runs the tool
+#       functions named in the LLM's tool_calls and appends ToolMessages.
+#
+#   Edges:
+#     entry → "agent"
+#     "agent" → route() → "tools" (if last message has tool_calls) | END (otherwise)
+#     "tools" → "agent"  (always loops back so the LLM can see the tool result)
+#
+# Tool selection — how the agent chooses:
+#   1. All integration adapters register their @tool functions via get_agent_tools().
+#   2. build_agent_graph() collects them all with get_all_tools() → get_langchain_llm().bind_tools(tools).
+#   3. bind_tools() injects the function schemas into the LLM's context.
+#   4. The LLM decides which tool to call (or none) purely from its understanding
+#      of the user's request and the available tool descriptions.
+#
+# System prompt — _build_agent_system_prompt(tools):
+#   Built dynamically from the AGENT_INTRO base and the live tool list.
+#   Groups tools by integration prefix (gmail_*, slack_*, etc.) for readability.
+#   Injects per-integration strategy hints and the output-step gate rule
+#   (never post to Slack/email unless the user explicitly asked).
+#
+# run_agent(query, run_id) → dict
+#   The public async entry point called by agent_router.py's background task.
+#   Builds the graph, invokes it with the query, then parses the final state:
+#     - AIMessages with tool_calls → recorded as steps (tool_name, input, output)
+#     - ToolMessages → matched back to steps via tool_call_id
+#     - Last AIMessage with no tool_calls → the final_answer
+#   Returns {"run_id", "status", "final_answer", "steps", "error"}.
+# =============================================================================
 
 import json
 import logging

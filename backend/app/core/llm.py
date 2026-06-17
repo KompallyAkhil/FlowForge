@@ -1,3 +1,31 @@
+# =============================================================================
+# core/llm.py — Shared LLM client factory
+#
+# The single place in the codebase where AI provider clients are constructed.
+# All other modules that need to call an LLM import from here instead of
+# instantiating provider clients directly.
+#
+# Two public functions:
+#
+# chat_complete(system, user, max_tokens)
+#   Synchronous, single-turn completion. Used by the integration adapters
+#   (ai_tools.py: summarize/extract/transform) where blocking is acceptable
+#   because the execution engine already runs in a background thread.
+#   Dispatches on settings.ai_provider and uses the matching SDK client.
+#
+# get_langchain_llm()
+#   Returns a LangChain chat model instance (ChatOpenAI / ChatGroq /
+#   ChatAnthropic) compatible with LangGraph's StateGraph.
+#   Called by:
+#     - agentic_runner.py   → main ReAct agent (free-form tool use)
+#     - failure_agent.py    → step-level failure recovery agent
+#     - base.py             → per-integration inline recovery agent
+#   All three use .bind_tools(tools) on the returned object to enable
+#   LangChain tool-calling.
+#
+# _AI_TIMEOUT (60s) is applied to every client to prevent a hung AI call
+# from stalling a workflow execution indefinitely.
+# =============================================================================
 """Shared LLM client factory — abstracts OpenRouter, Groq, and Anthropic."""
 from app.core.config import get_settings
 

@@ -1,3 +1,29 @@
+# =============================================================================
+# services/ai_service.py — Async LLM reply generator for the chat assistant
+#
+# Contains the single async function `generate_reply` used by api/chat.py
+# to produce Aiden's response to a user message.
+#
+# generate_reply(session_id, messages, memory_snippets, tool_results)
+#   Builds the full system prompt by combining:
+#     1. CHAT_ASSISTANT_SYSTEM — the base persona/role prompt from prompts.py
+#     2. Relevant memory snippets (if any) injected as a "Relevant memory:"
+#        block so the LLM can reference past context.
+#     3. Tool results (if any) injected as a "Tool results:" block — e.g.,
+#        the current datetime from tools_service.
+#   Then calls the configured AI provider (openrouter / groq / anthropic)
+#   with the full conversation history (all prior messages in the session)
+#   and returns the assistant's text reply.
+#
+# _build_system(memory_snippets, tool_results)
+#   Internal helper that assembles the system prompt string from the three
+#   parts above. Returns a single string with sections separated by blank
+#   lines so the LLM sees them as distinct blocks of context.
+#
+# This service is async because the LLM calls use async HTTP clients
+# (AsyncOpenAI, AsyncGroq, AsyncAnthropic) which integrate cleanly with
+# FastAPI's async request handlers without blocking the event loop.
+# =============================================================================
 from app.core.config import get_settings
 from app.models.chat import ChatMessage
 from app.prompts import CHAT_ASSISTANT_SYSTEM

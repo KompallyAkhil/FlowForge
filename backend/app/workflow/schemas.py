@@ -1,3 +1,38 @@
+# =============================================================================
+# workflow/schemas.py — Pydantic request/response schemas for the workflow API
+#
+# This file defines the full data contract between the frontend and the
+# workflow engine. Unlike db_models.py (SQLAlchemy ORM), these are pure
+# Pydantic models used for HTTP serialization and validation only.
+#
+# Core domain models:
+#   TriggerSchema      — trigger type, source, and optional cron condition.
+#   StepSchema         — one step in a workflow: integration, action, params,
+#                        description, and a unique id (e.g. "step_1").
+#   WorkflowDefinition — the full workflow structure (name + trigger + steps
+#                        + explanation). This is what the LLM planner returns
+#                        and what is stored as JSON in the Workflow.workflow_json
+#                        column. It is also what the frontend sends back when
+#                        editing a workflow via PUT.
+#
+# Request bodies:
+#   CreateWorkflowRequest   → POST /api/workflows/ (natural_language text)
+#   UpdateWorkflowRequest   → PUT /api/workflows/{id} (name and/or full json)
+#   StepAddRequest          → POST /api/workflows/{id}/steps
+#   StepUpdateRequest       → PATCH /api/workflows/{id}/steps/{step_id}
+#   ApproveRequest          → POST /api/workflows/{id}/approve (execute flag)
+#   RejectRequest           → POST /api/workflows/{id}/reject (optional reason)
+#   ReplanRequest           → POST /api/workflows/{id}/replan (optional new query)
+#   ScheduleUpdateRequest   → PUT /api/workflows/{id}/schedule
+#   ExecuteRequest          → POST /api/workflows/{id}/execute (start_from_step)
+#
+# Response models (model_config = from_attributes=True for ORM → Pydantic):
+#   WorkflowResponse        → full workflow shape returned by most endpoints;
+#                             includes next_run (injected from scheduler, not DB).
+#   WorkflowVersionResponse → version snapshot with structured diff.
+#   ExecutionResponse       → execution status + computed duration_seconds.
+#   ExecutionLogResponse    → per-step log with input/output/error/retry_count.
+# =============================================================================
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Any
 from datetime import datetime

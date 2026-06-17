@@ -1,3 +1,48 @@
+# =============================================================================
+# workflow/engine/execution_engine.py — Step runner and execution lifecycle
+#
+# The core engine that actually executes workflow steps. Handles the full
+# lifecycle from creating an Execution record to writing per-step logs.
+#
+# run_execution(db, execution_id)
+#   The central function. Loads the workflow definition, sets status=running,
+#   then iterates over steps starting at execution.current_step (for resumes).
+#   For each step:
+#     1. _resolve_params()        — substitutes ${step_N.field} references
+#     2. _assert_no_unresolved_refs() — fails fast on unresolved placeholders
+#     3. _execute_step_with_retry() — calls the integration, retries once on failure
+#     4. run_failure_agent()      — last-resort LangGraph recovery if retry fails
+#   Checks for "cancelled" status before each step so user-requested stops
+#   take effect at the next step boundary.
+#
+# _resolve_params(params, step_outputs) → dict
+#   Two-pass resolver for ${...} references:
+#     Full-value refs: "${step_1.emails}" → replaces the whole string with the
+#       Python value (list, dict, etc.) so downstream steps receive real types.
+#     Inline refs: "Hello ${step_2.name}!" → embedded string interpolation.
+#   Supports dotted paths, array indexing ([0]), array shortcuts (.length,
+#   .first, .last, .[*]), and special dates (${today}, ${now}).
+#
+# _execute_step_with_retry(db, execution_id, step_index, step, params)
+#   Attempts to run a step up to MAX_RETRIES+1 times (default: 2 total).
+#   Calls IntegrationRegistry.get(step.integration).execute(action, params).
+#   Writes an ExecutionLog row on every attempt (success or failure).
+#
+# 4-layer recovery on failure (outermost to innermost):
+#   Layer 1 (inside BaseIntegration.execute): _recover_fixable() — pure Python
+#   Layer 2 (inside BaseIntegration.execute): _run_recovery_agent() — inline LangGraph
+#   Layer 3 (this file):    MAX_RETRIES raw re-attempt
+#   Layer 4 (this file):    run_failure_agent() — full LangGraph failure-recovery agent
+#
+# Supporting functions:
+#   create_execution()              → creates a fresh Execution row (status=pending)
+#   create_execution_from_step()    → creates execution seeded with prior step outputs
+#   get_execution() / list_executions() / get_execution_logs() → read-only queries
+#   cancel_execution()              → sets status=cancelled (checked at next step)
+#   resume_execution()              → resets status=running, calls run_execution()
+#   run_in_background()             → creates its own DB session for background task use
+#   run_scheduled_workflow()        → called by the APScheduler _fire_workflow callback
+# =============================================================================
 import uuid
 import json
 import logging

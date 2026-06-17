@@ -1,3 +1,52 @@
+# =============================================================================
+# workflow/engine/workflow_engine.py — Workflow CRUD and versioning engine
+#
+# The data layer for creating, reading, updating, and deleting workflows.
+# All functions take a SQLAlchemy Session as their first argument and are
+# called by workflow_router.py. No HTTP concerns live here.
+#
+# CRUD:
+#   create_workflow(db, original_input, definition)
+#     Validates the definition (at least one step, all integrations registered),
+#     persists a Workflow row, and saves version 1 with change_summary =
+#     "Initial creation".
+#
+#   get_workflow(db, id)     → Workflow | None
+#   list_workflows(db)       → list[Workflow] ordered by created_at desc
+#
+#   update_workflow(db, id, name, definition)
+#     Computes the structured diff BEFORE applying changes (so the snapshot
+#     captures what actually changed), applies name/steps updates, resets
+#     status to "draft" (any edit requires re-approval), re-registers the
+#     cron schedule if it changed, then saves a new version snapshot.
+#
+#   delete_workflow(db, id)
+#     Unschedules the workflow from APScheduler, then cascade-deletes it
+#     and all its executions and versions from the DB.
+#
+# Versioning:
+#   _compute_diff(old_name, old_json, new_name, new_def)
+#     Compares old and new workflow state. Returns (summary_string, changed_fields_list).
+#     Detects: name rename, step added, step removed, step renamed, step action
+#     changed, step params changed, steps reordered.
+#     changed_fields is a list of dicts with a "field" key, stored in
+#     WorkflowVersion.changed_fields and rendered as pills in the UI.
+#
+#   _save_version(db, wf, change_summary, changed_fields)
+#     Internal helper that creates a WorkflowVersion snapshot. Auto-increments
+#     version_number per workflow.
+#
+#   save_step_version(db, wf, change_summary)
+#     Public wrapper called by step-level CRUD endpoints (add/update/delete step)
+#     to record a version snapshot after each individual step change.
+#
+#   list_versions(db, workflow_id)
+#     Returns all versions for a workflow, newest first.
+#
+#   validate_workflow(definition) → list[str]
+#     Returns a list of validation error strings. Empty = valid.
+#     Checks: at least one step, all integrations are registered.
+# =============================================================================
 import uuid
 from datetime import datetime, UTC
 from sqlalchemy.orm import Session

@@ -1,3 +1,38 @@
+# =============================================================================
+# workflow/api/agent_router.py — LangGraph ReAct agent HTTP router
+#
+# Exposes the standalone agentic runner as a fire-and-poll REST API. The agent
+# is async and can take tens of seconds to complete, so it runs as a FastAPI
+# background task and results are polled by the frontend.
+#
+# Endpoints:
+#   POST /api/agent/runs/       → start a new run; returns 202 immediately
+#   GET  /api/agent/runs/       → list recent runs (newest first, default 20)
+#   GET  /api/agent/runs/{id}   → get one run with all its steps
+#
+# Run lifecycle (start a run):
+#   1. Create an AgentRun row with status="pending".
+#   2. Return the (empty) row immediately as 202 Accepted.
+#   3. FastAPI schedules _execute_agent(run_id, query) as a background task.
+#
+# _execute_agent(run_id, query)
+#   The async background task. Opens its own DB session (cannot share the
+#   request session across background tasks). Calls agentic_runner.run_agent()
+#   which returns the full result dict after the LangGraph graph completes.
+#   Then persists:
+#     - Updates AgentRun.status, .final_answer, .error, .completed_at.
+#     - Creates one AgentStep row per tool call with tool_name, tool_input,
+#       tool_output, and status (success | failed).
+#
+# _serialize(run) → AgentRunOut
+#   Converts an AgentRun ORM row (with its steps relationship loaded) into
+#   the AgentRunOut Pydantic model for JSON serialization.
+#
+# Polling pattern (used by the frontend):
+#   POST /api/agent/runs/ → receive {id, status: "pending"}
+#   poll GET /api/agent/runs/{id} until status is "success" or "failed"
+#   Display final_answer and the list of steps (tool name + input + output).
+# =============================================================================
 import uuid
 from datetime import datetime, UTC
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException

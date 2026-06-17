@@ -1,3 +1,44 @@
+# =============================================================================
+# workflow/integrations/ai_tools.py — AI text-processing integration adapter
+#
+# Provides LLM-powered text transformation actions for workflow steps.
+# Uses core/llm.py chat_complete() (synchronous) since execution already
+# runs in a background thread. All three actions truncate their input to
+# settings.text_input_max_chars before sending to the LLM to stay within
+# token budgets.
+#
+# Actions exposed to the workflow engine (_dispatch):
+#   summarize(text, style, context)
+#     Summarizes text using SUMMARIZE_SYSTEM + SUMMARIZE_USER prompts.
+#     `style` selects from SUMMARIZE_STYLE_INSTRUCTIONS (bullet_points /
+#     paragraph / brief). `context` is prepended as metadata (e.g. email
+#     subject/sender). Input can be a string, list, or dict — converted to
+#     text by _to_text(). Empty input returns {"summary": ""} gracefully.
+#     Returns {"summary": "...", "style": "...", "char_count": N}.
+#
+#   extract(text, fields)
+#     Extracts structured fields from text using EXTRACT_SYSTEM + EXTRACT_USER.
+#     `fields` is a comma-separated list (e.g. "invoice_number, amount, due_date").
+#     Returns {"extracted": {...} or [{...}, ...], "fields": [...]} — the LLM
+#     returns an array when the input contains multiple records.
+#
+#   transform(text, instruction)
+#     Applies a free-form text transformation described by `instruction`
+#     (e.g. "translate to Spanish", "convert to markdown table").
+#     Returns {"transformed": "...", "instruction": "..."}.
+#
+# _to_text(value, max_chars)
+#   Converts any resolved step output to a plain string. Handles:
+#     - list of strings → joined with newlines
+#     - list of dicts (e.g. email objects) → each dict flattened to "key: value" lines
+#     - list of lists (Sheets rows) → tab-separated
+#     - scalar (str, int, float) → str()
+#   If max_chars > 0 and value is a list, samples rows intelligently (always
+#   includes first and last) rather than truncating blindly.
+#
+# Recovery: errors are classified UNKNOWN by default (no specific retry logic).
+# Rate-limit detection uses a signal list and backs off with time.sleep.
+# =============================================================================
 import json
 import re
 import time
@@ -136,6 +177,10 @@ class AIToolsIntegration(BaseIntegration):
             "planner_notes": (
                 "ai.summarize produces a \"summary\" field. Reference it as ${step_N.summary}.\n"
                 "ai.extract produces the fields you list (e.g. amount, date). Reference them as ${step_N.amount}, ${step_N.date}.\n"
+                "When the source text contains MULTIPLE sections (e.g. from read_emails_batch combined_text), "
+                "ai.extract returns an array of objects — one per section — exposed as ${step_N.items}.\n"
+                "  → To write each extracted record as a separate row: sheets.append_rows with rows: \"${step_N.items}\" and fields: [\"field_a\", \"field_b\"]\n"
+                "  → To reference the first record's field: ${step_N.amount} (first item is also spread to the top level)\n"
                 "Do not mix them up — extract gives structured data, summarize gives a readable paragraph.\n"
                 "ai.summarize can take strings, lists, or arrays for \"text\" — the engine converts automatically.\n"
                 "Only add ai.summarize when the user says \"summarize\", \"digest\", \"analyze\", or \"process\".\n"
@@ -160,11 +205,19 @@ class AIToolsIntegration(BaseIntegration):
                 {
                     "name": "extract",
                     "params": {"text": "${step_N.body}", "fields": ["field_a", "field_b"]},
-                    "output": {"field_a": "value", "field_b": "value", "extracted": {"field_a": "value", "field_b": "value"}, "fields": ["..."]},
+                    "output": {
+                        "field_a": "value (first record, or only record)",
+                        "field_b": "value",
+                        "items": [{"field_a": "value", "field_b": "value"}, "..."],
+                        "extracted": "same as items (list) or dict for single-section text",
+                        "fields": ["..."],
+                    },
                     "output_note": (
-                        "→ Extracted fields are available DIRECTLY at the top level — use ${step_N.field_a}, ${step_N.amount}, etc.\n"
-                        "  Example: fields=[\"amount\", \"date\", \"description\"] → reference as ${step_N.amount}, ${step_N.date}\n"
-                        "  Do NOT write ${step_N.extracted.amount} — the top-level shortcut always works."
+                        "→ Single section (one email/record): returns a flat dict — use ${step_N.field_a}, ${step_N.amount}\n"
+                        "→ Multiple sections (e.g. combined_text from read_emails_batch): returns items array — use ${step_N.items}\n"
+                        "  To write one row per extracted record: sheets.append_rows {rows: \"${step_N.items}\", fields: [\"field_a\", \"field_b\"]}\n"
+                        "  The first record's fields are ALSO spread to the top level for single-ref access.\n"
+                        "  Do NOT write ${step_N.extracted.amount} — always use the top-level shortcut."
                     ),
                 },
                 {
@@ -270,9 +323,15 @@ class AIToolsIntegration(BaseIntegration):
         except Exception:
             extracted = {"raw": raw}
 
-        # Spread extracted fields to the top level so planner references like
-        # ${step_N.amount} resolve directly without needing ${step_N.extracted.amount}.
-        # The nested "extracted" key is kept for backward compatibility.
+        # LLM returned an array (multi-section text, e.g. multiple emails).
+        # Expose the list as "items" and spread the first item's fields to the
+        # top level so single-ref patterns like ${step_N.amount} still work.
+        if isinstance(extracted, list):
+            first = extracted[0] if extracted else {}
+            return {**first, "items": extracted, "extracted": extracted, "fields": fields}
+
+        # Single extraction — spread fields to the top level so planner references
+        # like ${step_N.amount} resolve directly without ${step_N.extracted.amount}.
         return {**extracted, "extracted": extracted, "fields": fields}
 
     def _transform(self, params: dict) -> dict:

@@ -1,3 +1,45 @@
+# =============================================================================
+# workflow/api/workflow_router.py — Workflow CRUD, review, and schedule router
+#
+# The largest router in the application. Handles the complete workflow
+# lifecycle from natural language input to scheduled execution.
+#
+# Workflow CRUD:
+#   POST   /api/workflows/          → plan_workflow() then create in DB as draft
+#   GET    /api/workflows/          → list all (optional ?status= filter)
+#   GET    /api/workflows/{id}      → fetch one workflow
+#   PUT    /api/workflows/{id}      → edit name/steps; resets status to draft
+#   DELETE /api/workflows/{id}      → cascade-delete workflow + all executions
+#
+# Review lifecycle:
+#   POST   /api/workflows/{id}/approve → set status=approved; if execute=True
+#                                        starts background execution immediately
+#   POST   /api/workflows/{id}/reject  → set status=rejected; store reason
+#   POST   /api/workflows/{id}/replan  → re-invoke LLM planner, replace steps
+#
+# Step-level CRUD (each call saves a version snapshot):
+#   GET    /api/workflows/{id}/steps           → list current steps
+#   POST   /api/workflows/{id}/steps           → add step (insert_after or append)
+#   PATCH  /api/workflows/{id}/steps/{step_id} → update step fields in-place
+#   DELETE /api/workflows/{id}/steps/{step_id} → remove step
+#
+# Direct execution (bypasses review gate):
+#   POST   /api/workflows/{id}/execute → create execution + run in background
+#                                        supports start_from_step for partial runs
+#
+# Version history:
+#   GET    /api/workflows/{id}/versions   → all snapshots, newest first
+#   GET    /api/workflows/{id}/executions → all execution records
+#
+# Schedule management:
+#   GET    /api/workflows/{id}/schedule/status  → current schedule config + next_run
+#   POST   /api/workflows/{id}/schedule/enable  → register cron job in APScheduler
+#   POST   /api/workflows/{id}/schedule/disable → remove cron job
+#   PUT    /api/workflows/{id}/schedule         → update enabled flag and/or timezone
+#
+# _enrich(wf) injects next_run from the scheduler (not a DB column) into
+# every WorkflowResponse so the frontend can display the next scheduled fire.
+# =============================================================================
 import uuid
 from datetime import datetime, UTC  # UTC used by approve/reject/schedule/step endpoints
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks

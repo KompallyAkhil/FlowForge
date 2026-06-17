@@ -1,13 +1,32 @@
-"""
-Generic integration — catch-all for any workflow step that doesn't map to a known integration.
-
-Execution strategy (in order):
-  1. If params contain 'webhook_url' or 'url' → POST to that endpoint.
-  2. Otherwise → record the step as a manual action and return structured metadata.
-
-This lets the planner describe business steps (create_crm_record, notify_sales, etc.)
-in a way that is inspectable, modifiable, and optionally executable via webhook.
-"""
+# =============================================================================
+# workflow/integrations/generic.py — Catch-all integration for any step
+#
+# Handles any workflow step whose integration field is "generic" — used when
+# the LLM planner needs to describe a business action that doesn't map to
+# gmail, slack, sheets, or ai (e.g. "create CRM record", "trigger webhook",
+# "update database", "assign onboarding sequence").
+#
+# _dispatch(action, params) routes based on what's in params:
+#
+#   With "webhook_url" or "url" in params → _call_webhook()
+#     POSTs the remaining params as JSON to the URL using httpx.
+#     Returns {"status": "webhook_called", "http_status": N, "response": {...}}.
+#     Raises RuntimeError on HTTP 4xx/5xx or connection errors.
+#     httpx is imported lazily so it doesn't break installs that skip it.
+#
+#   Without a URL → _manual_step()
+#     Records the step as a human-required action. Does not make any API call.
+#     Returns {"status": "manual_required", "action": "...", "description": "..."}.
+#     The "description" comes from params["description"] (set by the planner)
+#     and is shown in the execution UI as a task the user needs to complete.
+#
+# get_planner_spec() returns None — the generic integration is described in
+# prompts.py (PLANNER_GENERIC_INTEGRATION) rather than via the registry spec
+# system, because its behavior is too open-ended to enumerate as actions.
+#
+# The generic integration intentionally does NOT expose get_agent_tools() —
+# the LangGraph agent should never call generic steps autonomously.
+# =============================================================================
 import json
 import logging
 from typing import Any

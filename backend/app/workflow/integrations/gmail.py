@@ -1,3 +1,43 @@
+# =============================================================================
+# workflow/integrations/gmail.py — Gmail integration adapter
+#
+# Connects to Gmail via the Google API using OAuth2 refresh tokens. Credentials
+# are loaded from the DB first (via credential_store) and fall back to .env
+# values if no DB record exists. The service client is lazy-initialized on
+# the first call and cached on the instance.
+#
+# Actions exposed to the workflow engine (_dispatch):
+#   search_emails(query, max_results)
+#     Searches Gmail with a query string (same syntax as the Gmail search bar).
+#     Returns {"emails": [{"id", "threadId", "snippet", "subject", ...}], "total": N}.
+#     Empty results return gracefully (no exception).
+#
+#   read_emails_batch(email_ids)
+#     Fetches full email content for a list of IDs. Decodes base64 body,
+#     strips HTML tags, and returns {"emails": [{"id", "subject", "from",
+#     "date", "body", "snippet"}]}.
+#
+#   send_email(to, subject, body, html_body)
+#     Sends an email from the authenticated account. Supports plain text or
+#     HTML (both can be provided for multipart/alternative). Uses MIME encoding.
+#     Returns {"sent": True, "to": ..., "subject": ...}.
+#
+#   extract_invoice(email_id)
+#     Reads one email and calls the LLM with INVOICE_EXTRACTION_USER prompt
+#     to extract structured invoice fields (number, vendor, amount, due_date,
+#     line_items) as JSON.
+#
+# Recovery:
+#   _classify_error maps HttpError → RATE_LIMIT / AUTH / FIXABLE / UNKNOWN.
+#   _recover_fixable: on FIXABLE (e.g. bad email ID), re-searches Gmail for
+#     the most recent matching email and retries with the discovered ID.
+#   _get_recovery_tools: exposes search_gmail_for_emails for the inline
+#     recovery agent to find the right email ID and retry.
+#
+# Agent tools (get_agent_tools):
+#   gmail_search_emails, gmail_read_email, gmail_send_email — LangChain @tool
+#   decorated functions the main ReAct agent can call directly.
+# =============================================================================
 import base64
 import json
 import logging
@@ -226,16 +266,52 @@ class GmailIntegration(BaseIntegration):
                 "slack.send_message is only used when the user explicitly asks to post to Slack.\n"
                 "You can send the same output to both Slack and Sheets — just have both steps reference the same earlier step.\n"
                 "\n"
-                "Gmail search query guide:\n"
-                "  Emails from a company or service → \"from:name OR subject:name\"\n"
-                "  Transaction or payment emails    → \"from:name transaction OR subject:name\"\n"
+                "Gmail search query guide — ALWAYS use OR between alternatives, never AND:\n"
+                "  Bank/financial alerts            → \"from:bankdomain.com OR subject:credited OR subject:debited OR subject:transaction\"\n"
+                "    e.g. Kotak Bank                → \"from:kotak.bank.in OR subject:kotak\"\n"
+                "    e.g. HDFC Bank                 → \"from:hdfcbank.com OR subject:hdfc\"\n"
+                "    e.g. SBI Bank                  → \"from:sbi.co.in OR subject:sbi\"\n"
+                "    Credit notifications           → \"subject:credited OR subject:\\\"amount credited\\\" OR subject:\\\"payment received\\\"\"\n"
+                "    Debit notifications            → \"subject:debited OR subject:\\\"amount debited\\\" OR subject:\\\"payment sent\\\"\"\n"
+                "  Emails from a company/service    → \"from:company.com OR subject:companyname\" (use domain, not bare name)\n"
+                "  Transaction or payment emails    → \"from:domain.com (transaction OR payment OR receipt)\"\n"
                 "  Emails with a Gmail label        → \"label:labelname\" (only when user says \"label X\")\n"
                 "  Unread emails                    → \"is:unread\"\n"
                 "  By subject keyword               → \"subject:keyword\"\n"
                 "  By exact sender address          → \"from:someone@domain.com\"\n"
-                "  Everything in inbox              → \"in:inbox\""
+                "  Recent N days                    → append \"newer_than:7d\" (use when user says 'last week', 'recent', 'last N days')\n"
+                "  Everything in inbox              → \"in:inbox\"\n"
+                "\n"
+                "IMPORTANT — Gmail query rules:\n"
+                "  1. 'Latest' / 'most recent' email → NO time filter. Set max_results:1. Gmail returns newest first.\n"
+                "     NEVER add newer_than:1d for 'latest' — the email may be days or weeks old.\n"
+                "     Only add newer_than:Nd when the user explicitly says 'last N days', 'this week', etc.\n"
+                "  2. Company/org names → combine domain + keyword for maximum recall:\n"
+                "     'from AIDENAI'  → \"from:aidenai.com OR AIDENAI\"   (domain + keyword fallback)\n"
+                "     'from Kotak'    → \"from:kotak.bank.in OR kotak\"\n"
+                "     'from LinkedIn' → \"from:linkedin.com OR linkedin\"\n"
+                "     NEVER write: from:AIDENAI (bare name without .com — misses most emails)\n"
+                "  3. Company names with spaces: use domain form → from:kotak.bank.in NOT from:kotak bank\n"
+                "  4. Multi-word subjects: quote them → subject:\\\"Payment Received\\\" NOT subject:Payment Received\n"
+                "  5. When bank/service name is unknown but intent is clear, use subject keywords broadly:\n"
+                "     \"credited\" means money came IN → query: subject:credited OR subject:\\\"amount credited\\\" OR subject:\\\"payment received\\\"\n"
+                "     \"debited\" means money went OUT → query: subject:debited OR subject:\\\"amount debited\\\"\n"
+                "  6. Always cast a wide net with OR — prefer recall over precision for any alert or notification emails"
             ),
             "chaining_examples": [
+                {
+                    "description": "Get the latest / most recent email from a company or person",
+                    "steps": [
+                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "from:aidenai.com OR AIDENAI", "max_results": 1}},
+                        {"integration": "gmail",  "action": "read_email",        "params": {"message_id": "${step_1.emails[0].id}"}},
+                        {"integration": "ai",     "action": "summarize",         "params": {"text": "${step_2.body}"}},
+                    ],
+                    "note": (
+                        "'Latest' means max_results:1 — NO newer_than filter. Gmail returns newest first by default. "
+                        "Query uses 'from:domain.com OR CompanyName' to catch all variants of the sender. "
+                        "Use read_email (singular) not read_emails_batch when fetching exactly 1 email."
+                    ),
+                },
                 {
                     "description": "Summarize recent inbox emails",
                     "steps": [
@@ -295,6 +371,34 @@ class GmailIntegration(BaseIntegration):
                         "step 3 (extract) feeds Sheets with structured fields; step 4 (summarize) feeds Slack. "
                         "Do not use ${step_3.summary} — ai.extract does not produce a summary field. "
                         "Do not use ${step_4.amount} — ai.summarize does not produce structured fields."
+                    ),
+                },
+                {
+                    "description": "Bank credit/debit notifications — summarize and send to Slack",
+                    "steps": [
+                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "from:kotak.bank.in OR subject:credited OR subject:\"payment received\"", "max_results": 10}},
+                        {"integration": "gmail",  "action": "read_emails_batch", "params": {"emails": "${step_1.emails}"}},
+                        {"integration": "ai",     "action": "extract",           "params": {"text": "${step_2.combined_text}", "fields": ["amount", "sender", "date_of_credit", "transaction_reference", "account_number"]}},
+                        {"integration": "ai",     "action": "summarize",         "params": {"text": "${step_2.combined_text}", "style": "bullet_points"}},
+                        {"integration": "slack",  "action": "send_message",      "params": {"channel": "#general", "text": "${step_4.summary}"}},
+                    ],
+                    "note": (
+                        "For any bank name (Kotak, HDFC, SBI, ICICI, Axis) use from:bankdomain.com. "
+                        "Supplement with OR subject:credited / subject:debited to cast a wide net. "
+                        "Fields for bank alerts: amount, sender (who sent money), date_of_credit, transaction_reference (UTR/ref), account_number."
+                    ),
+                },
+                {
+                    "description": "Any bank or financial alert — extract and log to Sheets",
+                    "steps": [
+                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "subject:credited OR subject:debited OR subject:\"payment received\" OR subject:\"amount credited\"", "max_results": 10}},
+                        {"integration": "gmail",  "action": "read_emails_batch", "params": {"emails": "${step_1.emails}"}},
+                        {"integration": "ai",     "action": "extract",           "params": {"text": "${step_2.combined_text}", "fields": ["amount", "bank", "sender", "date", "transaction_type", "reference_number"]}},
+                        {"integration": "sheets", "action": "append_rows",       "params": {"rows": "${step_3.items}", "fields": ["amount", "bank", "sender", "date", "transaction_type", "reference_number"], "sheet": "Sheet1"}},
+                    ],
+                    "note": (
+                        "Use subject keyword OR queries when the bank name/domain is unknown. "
+                        "append_rows with ${step_3.items} writes one row per email when ai.extract returns multiple records."
                     ),
                 },
             ],

@@ -1,3 +1,32 @@
+# =============================================================================
+# main.py — FastAPI application factory and entry point
+#
+# This is the root of the entire backend. It does four things:
+#
+# 1. Creates the FastAPI app with CORS middleware so the Next.js frontend
+#    (localhost:3000) can talk to the backend (localhost:8000).
+#
+# 2. Registers all API routers under their URL prefixes:
+#    - /api/chat        → Aiden general-purpose chat assistant
+#    - /api/memory      → In-memory session-scoped key-value store
+#    - /api/integrations → Google OAuth + Slack token management
+#    - /api/workflows   → Workflow CRUD, review, approval, scheduling
+#    - /api/executions  → Execution status, logs, resume, chat
+#    - /api/agent/runs  → LangGraph ReAct agent (free-form tool use)
+#
+# 3. Runs startup logic via the lifespan context manager:
+#    - init_db()                → creates all SQLite tables (no Alembic)
+#    - _reset_stuck_executions() → marks orphaned "running" rows as failed
+#    - start_scheduler()        → starts the APScheduler background thread
+#    - load_scheduled_workflows() → re-registers cron jobs from the DB so
+#                                   schedules survive server restarts
+#
+# 4. Exposes GET /health as a simple liveness probe.
+#
+# Importing `app.workflow.integrations` (noqa line) triggers the integration
+# registry to load all adapters (gmail, slack, sheets, ai, generic) so they
+# are available before any request is handled.
+# =============================================================================
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

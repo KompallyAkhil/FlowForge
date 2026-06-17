@@ -1,3 +1,27 @@
+# =============================================================================
+# api/memory.py — In-memory session-scoped storage router
+#
+# Exposes CRUD endpoints for the Aiden chat assistant's short-term memory.
+# Memory items are stored per session_id in a plain Python dict inside
+# memory_service.py (not persisted to the database — process-scoped only).
+#
+# Endpoints:
+#   POST   /api/memory/add                   → store a new memory item
+#   POST   /api/memory/search                → keyword search over items in a session
+#   GET    /api/memory/list/{session_id}     → list all items for a session
+#   DELETE /api/memory/item/{session_id}/{id} → delete one item
+#   DELETE /api/memory/clear/{session_id}    → remove all items for a session
+#   GET    /api/memory/test                  → smoke test (add → search → delete)
+#
+# The search is a simple case-insensitive substring match against item content
+# and tags — there is no vector/semantic search. This is intentional: it keeps
+# the memory system dependency-free and fast enough for the small item counts
+# (capped at MEMORY_MAX_ITEMS per session, default 100) expected in practice.
+#
+# This router is used indirectly by the chat endpoint: when use_memory=True,
+# api/chat.py calls memory_service directly (not this router) to search for
+# relevant snippets before each LLM call and to store each completed turn.
+# =============================================================================
 from fastapi import APIRouter, HTTPException
 from app.models.memory import (
     MemoryAddRequest,

@@ -1,3 +1,43 @@
+# =============================================================================
+# workflow/integrations/sheets.py — Google Sheets integration adapter
+#
+# Connects to Google Sheets via the Google Sheets API v4 using OAuth2 refresh
+# tokens. Credentials are loaded from the DB first (shared with the gmail
+# adapter — both use the same Google OAuth token saved under "sheets") and
+# fall back to .env values. The service client is lazy-initialized and cached.
+#
+# Actions exposed to the workflow engine (_dispatch):
+#   read_sheet(sheet, range, spreadsheet_id)
+#     Reads cell values from a named tab and optional A1 range.
+#     Returns {"rows": [[...], ...], "total_rows": N, "sheet": "Tab Name"}.
+#
+#   write_sheet(sheet, values, start_cell, spreadsheet_id)
+#     Overwrites a range of cells with a 2D list of values. Clears the range
+#     first then writes. Returns {"written": True, "rows": N, "cols": N}.
+#
+#   append_row(sheet, values, spreadsheet_id)
+#     Appends a single flat list as a new row at the end of the sheet.
+#     Returns {"appended": True, "sheet": ..., "values": [...]}.
+#
+#   append_rows(sheet, rows, spreadsheet_id)
+#     Bulk-appends multiple rows in a single API call. Each item in `rows`
+#     can be a list (used as-is) or a dict (values extracted in key order).
+#     Returns {"appended": True, "rows_added": N}.
+#
+# Recovery:
+#   _classify_error maps HttpError status codes → RATE_LIMIT / AUTH / FIXABLE / UNKNOWN.
+#   _recover_fixable: on FIXABLE (e.g. wrong tab name), lists all sheet tabs
+#     and fuzzy-matches to find the closest name, then retries.
+#   _get_recovery_tools: exposes list_sheets_tabs for the inline recovery
+#     agent to discover available tab names and retry with the correct one.
+#
+# Agent tools (get_agent_tools):
+#   sheets_read, sheets_append_row, sheets_get_info — LangChain @tool
+#   functions available to the main ReAct agent.
+#
+# The spreadsheet_id param is optional in all actions — it falls back to
+# SHEETS_SPREADSHEET_ID from .env so the planner doesn't need to hardcode it.
+# =============================================================================
 import json
 import logging
 from typing import Any
@@ -567,6 +607,10 @@ class SheetsIntegration(BaseIntegration):
                 data = json.loads(data)
             except (json.JSONDecodeError, ValueError):
                 data = [data]
+
+        # A single extracted dict (e.g. from ai.extract) should write one row, not iterate over keys
+        if isinstance(data, dict):
+            data = [data]
 
         if not data:
             raise ValueError("'rows' is required for append_rows — pass a list of values or objects")

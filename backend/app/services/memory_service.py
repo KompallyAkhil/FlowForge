@@ -1,3 +1,34 @@
+# =============================================================================
+# services/memory_service.py — In-memory session-scoped key-value store
+#
+# Implements simple short-term memory for the Aiden chat assistant. Items
+# are stored in a module-level dict (_store) keyed by session_id — this is
+# purely in-process and is lost when the server restarts.
+#
+# Public API:
+#   add(session_id, content, tags)  → creates a MemoryItem with a UUID,
+#                                     appends it to the session's bucket,
+#                                     and evicts the oldest item if the
+#                                     bucket exceeds MEMORY_MAX_ITEMS (100).
+#
+#   list_all(session_id)            → returns a copy of all items for the
+#                                     session (newest at the end).
+#
+#   search(session_id, query, limit) → case-insensitive substring match
+#                                     against item content and tags.
+#                                     Returns up to `limit` matching items.
+#                                     No vector/embedding search — intentionally
+#                                     simple to stay dependency-free.
+#
+#   delete(session_id, item_id)     → removes one item by UUID. Returns True
+#                                     if deleted, False if not found.
+#
+#   clear(session_id)               → removes all items; returns the count.
+#
+# Called by:
+#   - api/memory.py   → exposes these functions via REST endpoints
+#   - api/chat.py     → searches before each LLM call, stores after each turn
+# =============================================================================
 import uuid
 from datetime import datetime, UTC
 from app.models.memory import MemoryItem

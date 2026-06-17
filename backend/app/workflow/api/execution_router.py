@@ -1,3 +1,34 @@
+# =============================================================================
+# workflow/api/execution_router.py — Execution status, control, and chat router
+#
+# Handles everything related to a specific execution after it has been started.
+# Executions are created by workflow_router.py (approve + execute, or /execute
+# directly) and polled here by the frontend's live progress view.
+#
+# Endpoints:
+#   GET  /api/executions/{id}          → execution status + current_step
+#   GET  /api/executions/{id}/logs     → per-step logs (input, output, error, retry_count)
+#   POST /api/executions/{id}/cancel   → set status=cancelled; background task stops
+#                                        at next step boundary, current_step preserved
+#   POST /api/executions/{id}/resume   → restart a failed/cancelled execution from
+#                                        where it stopped (background task, returns 202)
+#   POST /api/executions/{id}/chat     → conversational Q&A about execution results
+#
+# The /chat endpoint is the most complex. It:
+#   1. Loads the execution + its parent workflow and all step logs from DB.
+#   2. Builds a steps_summary string (integration.action + description per step).
+#   3. Builds a results_summary string (status, output snippet, or error per step).
+#      Groups logs by step_index to detect agent-recovered steps (multiple log
+#      rows per step where earlier ones failed but the last succeeded).
+#   4. Formats both into the EXECUTION_CHAT_SYSTEM prompt template from prompts.py.
+#   5. Calls the configured AI provider with the full conversation history
+#      (req.history contains prior chat turns from the frontend).
+#   6. Returns the AI reply as ExecutionChatResponse.
+#
+# The polling pattern: the frontend calls GET /{id} + GET /{id}/logs in parallel
+# every 1500ms during execution. The logs endpoint is the source of truth for
+# step-level progress — the execution row only tracks overall status.
+# =============================================================================
 import json
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel

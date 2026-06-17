@@ -1,3 +1,38 @@
+# =============================================================================
+# workflow/integrations/slack.py — Slack integration adapter
+#
+# Connects to Slack using the Slack SDK WebClient with a bot token. The token
+# is loaded fresh from the DB on every request via the `client` property
+# (no caching) — this means connect/disconnect from the setup screen takes
+# effect immediately without restarting the server. Falls back to the
+# SLACK_BOT_TOKEN env var if no DB credential exists.
+#
+# Actions exposed to the workflow engine (_dispatch):
+#   send_message(channel, text, blocks)
+#     Posts a message to a Slack channel or user. `channel` accepts #channel-name
+#     or a user ID. Returns {"sent": True, "channel": ..., "ts": ...}.
+#
+#   read_messages(channel, limit)
+#     Reads the most recent N messages from a channel (default 10, max 100).
+#     Returns {"messages": [{"text", "user", "ts", "type"}], "channel": ...}.
+#     Returns {"messages": [], "total": 0} gracefully if channel is empty.
+#
+# Recovery:
+#   _classify_error maps SlackApiError codes:
+#     "channel_not_found", "invalid_channel" → FIXABLE
+#     "ratelimited"                          → RATE_LIMIT
+#     "not_authed", "invalid_auth"           → AUTH
+#     "msg_too_long", "no_text"              → FATAL
+#
+#   _recover_fixable: on FIXABLE, lists all public channels to find a name
+#     match and retries with the correct channel ID.
+#   _get_recovery_tools: exposes list_slack_channels for the inline recovery
+#     agent to discover the right channel name and retry.
+#
+# Agent tools (get_agent_tools):
+#   slack_send_message, slack_read_messages — LangChain @tool functions
+#   available to the main ReAct agent.
+# =============================================================================
 import json
 import logging
 from typing import Any
@@ -275,7 +310,7 @@ class SlackIntegration(BaseIntegration):
 
     def _send_message(self, params: dict) -> dict:
         from app.core.config import get_settings
-        channel = params.get("channel") or get_settings().slack_default_channel
+        channel = (params.get("channel") or get_settings().slack_default_channel or "").lstrip("#")
         text = params.get("text") or params.get("message", "")
         # ${step_N.rows} resolves to a list-of-lists; convert to readable text
         if isinstance(text, list):

@@ -1,3 +1,31 @@
+# =============================================================================
+# api/chat.py — FlowForge general-purpose chat assistant router
+#
+# Provides a multi-turn conversational interface for the FlowForge assistant.
+# This is separate from the workflow-specific chat endpoints — it is a
+# general-purpose assistant that can answer questions about FlowForge,
+# help users design workflows, and discuss automation ideas.
+#
+# Endpoints:
+#   POST /api/chat/send          → send a message; returns AI reply
+#   GET  /api/chat/history/{id}  → fetch conversation history for a session
+#   DELETE /api/chat/history/{id} → clear a session's history
+#   GET  /api/chat/test          → smoke test that exercises the full pipeline
+#
+# How a message is processed (send_message):
+#   1. Append the user message to in-memory session history (_sessions dict).
+#   2. If use_memory=True, call memory_service.search() for relevant past
+#      snippets to include as context (top 3 hits).
+#   3. If use_tools=True and the message mentions time/date keywords,
+#      call tools_service.call_tool("datetime_info") and include the result.
+#   4. Pass history + memory snippets + tool results to ai_service.generate_reply().
+#   5. Append the assistant reply to session history.
+#   6. If use_memory=True, store the turn (user msg + reply) in memory.
+#
+# Session state is stored in a plain Python dict (_sessions) — it is
+# process-scoped and not persisted to the database. Restarting the server
+# clears all session histories.
+# =============================================================================
 from fastapi import APIRouter, HTTPException
 from app.models.chat import ChatRequest, ChatResponse, ChatHistory, ChatMessage
 from app.services import ai_service, memory_service, tools_service

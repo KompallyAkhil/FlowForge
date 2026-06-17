@@ -1,12 +1,43 @@
-"""
-LangGraph-powered failure recovery agent.
-
-When a workflow step fails after all retries, this agent:
-  1. Inspects the actual output data from previous steps
-  2. Diagnoses why the step failed (wrong field path, shape mismatch, etc.)
-  3. Re-executes the step with corrected parameters (up to MAX_FIX_ATTEMPTS)
-  4. Returns the successful output, or a clear explanation if unfixable
-"""
+# =============================================================================
+# workflow/agent/failure_agent.py — LangGraph step-failure recovery agent
+#
+# Layer 4 of the execution engine's 4-layer recovery system. Invoked by
+# execution_engine.run_execution() when a step has failed after all retries
+# and the integration-level recovery agents have also failed.
+#
+# This is a separate, more powerful agent than the inline recovery agent in
+# base.py. It has three tools available:
+#
+#   inspect_previous_outputs()
+#     Returns a JSON dump of all successful step outputs from earlier in the
+#     workflow run. The agent calls this to find the correct field names and
+#     values that should be passed to the failed step (e.g. the real email ID,
+#     the correct spreadsheet row, the actual channel ID).
+#
+#   get_config_defaults()
+#     Returns the system's configured resources (Slack channel, spreadsheet ID,
+#     sheet tab name) from IntegrationRegistry.collect_configured_resources().
+#     Called when the step failed because a resource name is wrong or missing.
+#
+#   try_execute_step(params)
+#     Re-executes the failed step by calling integration._dispatch() directly
+#     (NOT .execute() — avoids re-triggering the integration-level recovery
+#     agent and creating an infinite loop). Returns {"success": bool, "output"}.
+#
+# build_agent(step_integration, step_action, step_outputs) → compiled graph
+#   Builds a fresh LangGraph StateGraph per failure. The graph has the same
+#   agent→tools→agent loop as agentic_runner.py but with these three tools
+#   and exits as soon as try_execute_step returns success=True.
+#   Max attempts is controlled by settings.max_fix_attempts (default 2).
+#
+# run_failure_agent(step_integration, step_action, step_name, original_params,
+#                   error_message, step_outputs) → {"fixed", "output", "error"}
+#   Public entry point called by execution_engine.py.
+#   Skips agent invocation entirely for rate-limit errors (they can't be fixed
+#   by calling the same LLM that is itself rate-limited).
+#   Returns {"fixed": True, "output": {...}} on success, or
+#   {"fixed": False, "error": "..."} with the agent's explanation on failure.
+# =============================================================================
 
 import json
 import logging

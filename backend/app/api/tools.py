@@ -1,3 +1,25 @@
+# =============================================================================
+# api/tools.py — Pluggable tool invocation router
+#
+# A thin HTTP layer over tools_service.py that lets external callers list and
+# invoke backend tools by name. Currently the only registered tool is
+# "datetime_info" which returns the current UTC date, time, and day of week.
+#
+# Endpoints:
+#   GET  /api/tools/list  → list all available tool names
+#   POST /api/tools/call  → call a tool by name with optional params
+#   GET  /api/tools/test  → smoke test that calls all four tool stubs
+#
+# The test endpoint exercises four tool stubs (web_search, calculator,
+# datetime_info, summarize) — only datetime_info is actually implemented;
+# the others will return success=False in the response, which is expected
+# and documented.
+#
+# This router is also used internally by api/chat.py: when a user message
+# mentions time/date keywords, the chat endpoint calls
+# tools_service.call_tool("datetime_info") directly (bypassing HTTP) to
+# inject the current datetime into the LLM context before generating a reply.
+# =============================================================================
 from fastapi import APIRouter
 from app.models.tools import ToolCallRequest, ToolCallResponse, ToolListResponse
 from app.services import tools_service

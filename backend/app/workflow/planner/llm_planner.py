@@ -1,3 +1,44 @@
+# =============================================================================
+# workflow/planner/llm_planner.py — AI workflow planner
+#
+# The entry point for turning a natural language string into a validated
+# WorkflowDefinition. Called by POST /api/workflows/ and POST /replan.
+#
+# plan_workflow(natural_language) → WorkflowDefinition
+#   Top-level coroutine. Dispatches to _call_openrouter / _call_groq /
+#   _call_anthropic based on settings.ai_provider. All three send the same
+#   dynamically built system prompt and parse the response with _parse_llm_output.
+#
+# _build_system_prompt() → str
+#   The most important function in this file. Assembles the full planner
+#   system prompt at request time (not at import time) so it reflects the
+#   current state of the integration registry, configured resources, and
+#   available actions. Structure of the assembled prompt:
+#     1. PLANNER_INTRO           — role definition
+#     2. Current date/time       — so the LLM can use "today" and "now"
+#     3. Strict JSON rules
+#     4. Available integrations  — pulled from IntegrationRegistry specs
+#     5. Configured resources    — actual Slack channel, spreadsheet ID, etc.
+#     6. PLANNER_OUTPUT_STEP_GATE — when NOT to add output steps
+#     7. PLANNER_RESOURCE_RULES  — exact sheet/channel naming rules
+#     8. Known actions + params  — one line per action, from each spec
+#     9. PLANNER_GENERIC_INTEGRATION — catch-all instructions
+#    10. Step output chaining    — ${step_N.field} syntax + output shapes
+#    11. Chaining section        — syntax + per-integration notes + examples
+#    12. PLANNER_TRIGGER_RULES  — cron format and trigger type rules
+#    13. PLANNER_OUTPUT_FORMAT  — the exact JSON schema the LLM must return
+#
+# _build_chaining_section(specs) → str
+#   Assembles chaining guidance entirely from integration registry data:
+#   PLANNER_CHAINING_SYNTAX (static) + per-integration planner_notes +
+#   multi-step examples contributed by each adapter spec.
+#
+# _parse_llm_output(raw) → WorkflowDefinition
+#   Strips markdown fences, parses JSON, normalises action names (removes
+#   "integration." prefixes if the LLM included them), routes unknown
+#   integrations to "generic", and validates with Pydantic. Raises ValueError
+#   with a clear message on any parsing or validation failure.
+# =============================================================================
 import json
 import re
 from app.core.config import get_settings

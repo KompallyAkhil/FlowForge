@@ -1,3 +1,51 @@
+# =============================================================================
+# workflow/integrations/base.py — Integration base class and plugin registry
+#
+# Two things live here: the abstract base class for all integrations, and the
+# IntegrationRegistry that tracks which adapters are active.
+#
+# BaseIntegration (ABC)
+#   Every integration adapter (gmail, slack, sheets, ai, generic) inherits
+#   from this class. Subclasses MUST implement:
+#     _dispatch(action, params) → dict
+#       Routes an action string to the correct method (e.g. "send_message"
+#       calls the Slack send logic). Raises ValueError for unknown actions.
+#
+#   Subclasses MAY override for integration-specific behavior:
+#     _classify_error(exc)      → ErrorCategory  (FIXABLE|RATE_LIMIT|AUTH|FATAL|UNKNOWN)
+#     _recover_fixable(...)     → pure-Python self-fix for FIXABLE errors
+#     _get_recovery_tools()     → @tool functions for the inline recovery agent
+#     get_agent_tools()         → @tool functions exposed to the main ReAct agent
+#     get_configured_resources() → (label, value) pairs for the planner prompt
+#     get_planner_spec()        → structured spec used to build the planner prompt
+#
+#   The public entry point is execute(action, params) which calls _dispatch()
+#   and routes any exception through the 2-layer recovery system:
+#     1. _recover_fixable() — fast, no LLM cost
+#     2. _run_recovery_agent() — inline LangGraph StateGraph scoped to this adapter
+#
+#   _run_recovery_agent() builds a mini LangGraph graph on the fly with:
+#     - retry_action tool (always present) — retries _dispatch with new params
+#     - integration-specific discovery tools from _get_recovery_tools()
+#   It exits as soon as retry_action succeeds or max_fix_attempts is reached.
+#
+# IntegrationRegistry (plugin registry)
+#   A class-level dict mapping integration name → BaseIntegration instance.
+#   New integrations register themselves in workflow/integrations/__init__.py.
+#   Provides:
+#     register(name, integration) → add to registry
+#     get(name)                   → raise KeyError if not found
+#     collect_agent_tools()       → all tools from all integrations (for the main agent)
+#     collect_planner_specs()     → all planner specs (for the system prompt builder)
+#     collect_configured_resources() → all (label, value) pairs (for planner + agent)
+#
+# ErrorCategory (Enum)
+#   FIXABLE    — wrong resource name, discoverable via Python
+#   RATE_LIMIT — 429 / too many requests → exponential backoff
+#   AUTH       — bad credentials → fail immediately, no retry
+#   FATAL      — quota exceeded → fail immediately
+#   UNKNOWN    — anything else → hand to recovery agent
+# =============================================================================
 import json
 import logging
 import time

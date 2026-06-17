@@ -1,3 +1,34 @@
+# =============================================================================
+# database.py — SQLAlchemy engine, session factory, and schema management
+#
+# This file is the single source of truth for the database connection. It:
+#
+# 1. Creates the SQLAlchemy engine pointing at the SQLite file (workflow.db
+#    by default, configurable via DATABASE_URL in .env).
+#
+# 2. Provides SessionLocal — a session factory used by every API endpoint
+#    via FastAPI's `Depends(get_db)` pattern (yields a session, closes it
+#    after the request regardless of success or failure).
+#
+# 3. Defines Base (DeclarativeBase) — all ORM models import this to register
+#    their table definitions. When init_db() runs, SQLAlchemy creates every
+#    table that has been imported and registered.
+#
+# 4. init_db() — called once on startup in main.py lifespan. It imports all
+#    ORM model modules (db_models, agent_db) to ensure their classes are
+#    registered with Base before calling create_all(). It also calls
+#    _migrate_schema() for additive column changes.
+#
+# 5. _migrate_schema() — a lightweight migration helper that uses SQLite's
+#    PRAGMA table_info to detect missing columns and issues ALTER TABLE ADD
+#    COLUMN statements for each. This replaces Alembic entirely. Only use
+#    this for adding new nullable or default-valued columns; it cannot rename
+#    or drop columns (SQLite doesn't support those operations natively).
+#
+# Key design constraint: SQLite's "check_same_thread": False is required
+# because FastAPI uses a thread pool for sync endpoints and the engine may
+# be accessed from multiple threads.
+# =============================================================================
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from app.core.config import get_settings

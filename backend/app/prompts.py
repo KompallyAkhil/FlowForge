@@ -106,16 +106,20 @@ If a requested field is not present in the text, set its value to null."""
 # {fields} — comma-separated list of field names (e.g. "invoice_number, amount, due_date")
 # {text}   — source text (pre-truncated by caller)
 EXTRACT_USER = """\
-Extract the following fields from the text below and return as a JSON object.
-If a field is not present in the text, set its value to null.
+Extract the following fields from the text below.
+If the text contains MULTIPLE distinct sections (e.g. multiple emails, entries, or records \
+separated by headers like "Email 1", "Email 2", or "---"), return a JSON ARRAY of objects — \
+one object per section. If there is only one section or record, return a single JSON object.
+If a field is not present in a section, set its value to null.
 
 Fields to extract: {fields}
 
 Text:
 {text}
 
-Return ONLY the JSON object — no markdown, no commentary.
-Format: {{"field_name": "extracted value or null", ...}}"""
+Return ONLY the JSON (array or object) — no markdown, no commentary.
+Array format (multiple sections): [{{"field_name": "value or null", ...}}, {{"field_name": "value or null", ...}}]
+Object format (single section):   {{"field_name": "value or null", ...}}"""
 
 
 TRANSFORM_SYSTEM = """\
