@@ -83,54 +83,29 @@ Persistence
 
 ```mermaid
 flowchart TD
-    A([User: describe automation in plain English]) --> B
+    A([User describes what to automate]) --> B[AI builds the workflow]
+    B --> C[Saved as a Draft]
+    C --> D[User reviews the steps]
 
-    subgraph PLAN ["① Plan"]
-        B[POST /api/workflows/] --> C[LLM Planner\nbuild prompt from IntegrationRegistry]
-        C --> D[WorkflowDefinition JSON\nname · trigger · steps]
-        D --> E[(DB — status: draft)]
-    end
+    D -- Looks wrong --> E[Reject or Re-plan]
+    E --> B
 
-    subgraph REVIEW ["② Review"]
-        E --> F[Review UI\ninspect · edit steps · chat to refine]
-        F --> G{User decision}
-        G -- Reject --> H([status: rejected\nmust edit before re-approving])
-        G -- Re-plan --> C
-        G -- Approve & Run --> I[POST /approve?execute=true\nstatus: approved]
-    end
+    D -- Looks good --> F[Approve and Run]
+    F --> G[Run each step one by one]
 
-    subgraph EXECUTE ["③ Execute  — one iteration per step"]
-        I --> J[Resolve step output refs\ntwo-pass expansion before each step]
-        J --> K[Call integration adapter\ngmail · slack · sheets · ai · generic]
-        K --> L{Success?}
-        L -- Yes --> M[Write ExecutionLog\nstatus: success]
-        M --> N{More steps?}
-        N -- Yes --> J
-        N -- No --> O([Execution: success])
-        L -- No --> R
-    end
+    G --> H{Step passed?}
+    H -- Yes --> I{Any steps left?}
+    I -- Yes --> G
+    I -- No --> J([Done — All steps succeeded])
 
-    subgraph RECOVER ["④ 4-layer failure recovery"]
-        R[Layer 1: _recover_fixable\npure-Python fix per adapter] --> R1{Fixed?}
-        R1 -- Yes --> M
-        R1 -- No --> S[Layer 2: inline LangGraph\nper-adapter resource discovery]
-        S --> S1{Fixed?}
-        S1 -- Yes --> M
-        S1 -- No --> T[Layer 3: raw retry]
-        T --> T1{Fixed?}
-        T1 -- Yes --> M
-        T1 -- No --> U[Layer 4: failure_agent\nfull LangGraph ReAct]
-        U --> U1{Fixed?}
-        U1 -- Yes --> M
-        U1 -- No --> V([Execution: failed])
-    end
+    H -- No --> K[Try to auto-fix]
+    K --> L{Fixed?}
+    L -- Yes --> I
+    L -- No --> M([Done — Execution failed])
 
-    subgraph DONE ["⑤ Done"]
-        O --> W[Done View]
-        V --> W
-        W --> X[Post-run LLM chat\nstep results injected into prompt]
-        W --> Y[Resume failed execution\nfrom last successful step]
-    end
+    J --> N[View results and chat with AI about what happened]
+    M --> N
+    M --> O[Resume from where it stopped]
 ```
 
 ---
