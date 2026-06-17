@@ -1,8 +1,14 @@
+
+
+
 # FlowForge — AI Workflow Automation Platform
 
 FlowForge lets you describe a multi-step automation in plain English and turns it into a structured, reviewable, executable workflow. It connects Gmail, Slack, and Google Sheets through an LLM-powered planner, a live execution engine, a LangGraph ReAct agent, and a conversational chat assistant — all from a single Next.js UI.
 
 ---
+# Demo Video 
+
+https://github.com/user-attachments/assets/c2b70c05-0253-4c32-95f3-7d83899be340
 
 ## Table of Contents
 
