@@ -91,21 +91,31 @@ flowchart TD
     E --> B
 
     D -- Looks good --> F[Approve and Run]
-    F --> G[Run each step one by one]
+    F --> G[Run the next step]
 
-    G --> H{Step passed?}
-    H -- Yes --> I{Any steps left?}
+    G --> H{Did it pass?}
+    H -- Yes --> I{More steps?}
     I -- Yes --> G
-    I -- No --> J([Done — All steps succeeded])
+    I -- No --> SUCCESS([All steps done])
 
-    H -- No --> K[Try to auto-fix]
-    K --> L{Fixed?}
-    L -- Yes --> I
-    L -- No --> M([Done — Execution failed])
+    H -- No --> R1[Quick fix\nno AI involved]
+    R1 --> R1C{Fixed?}
+    R1C -- Yes --> I
+    R1C -- No --> R2[Smart lookup\nAI finds the right resource]
+    R2 --> R2C{Fixed?}
+    R2C -- Yes --> I
+    R2C -- No --> R3[Retry once more]
+    R3 --> R3C{Fixed?}
+    R3C -- Yes --> I
+    R3C -- No --> R4[Recovery Agent\nAI reads all step outputs\nand patches the params]
+    R4 --> R4C{Fixed?}
+    R4C -- Yes --> I
+    R4C -- No --> FAIL([Step could not be fixed])
 
-    J --> N[View results and chat with AI about what happened]
-    M --> N
-    M --> O[Resume from where it stopped]
+    SUCCESS --> DONE[Done View]
+    FAIL --> DONE
+    DONE --> CHAT[Chat with AI about what happened]
+    FAIL --> RESUME[Resume from the failed step later]
 ```
 
 ---
