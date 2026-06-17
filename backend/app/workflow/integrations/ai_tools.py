@@ -133,6 +133,15 @@ class AIToolsIntegration(BaseIntegration):
             "name": "ai",
             "use_case": "summarize, extract, transform any text",
             "output_keywords": [],
+            "planner_notes": (
+                "ai.summarize produces a \"summary\" field. Reference it as ${step_N.summary}.\n"
+                "ai.extract produces the fields you list (e.g. amount, date). Reference them as ${step_N.amount}, ${step_N.date}.\n"
+                "Do not mix them up — extract gives structured data, summarize gives a readable paragraph.\n"
+                "ai.summarize can take strings, lists, or arrays for \"text\" — the engine converts automatically.\n"
+                "Only add ai.summarize when the user says \"summarize\", \"digest\", \"analyze\", or \"process\".\n"
+                "Raw Sheets rows can go directly to Slack without summarizing — the engine formats them as a table.\n"
+                "Always run ai.summarize before sending email body text to Slack or Sheets."
+            ),
             "agent_strategy": "- Summarising: ai_summarize(text=<body>, subject=<subject>, sender=<from>)",
             "actions": [
                 {

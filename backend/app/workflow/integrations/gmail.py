@@ -216,6 +216,88 @@ class GmailIntegration(BaseIntegration):
             "name": "gmail",
             "use_case": "sending/reading/searching emails",
             "output_keywords": ['"email me"', '"send an email"'],
+            "planner_notes": (
+                "search_emails is always the first step. It returns metadata (id, subject, sender, date) but not the email body.\n"
+                "read_emails_batch fetches the body text. Give it ${step_N.emails} from the search step.\n"
+                "ai.extract pulls specific structured fields (amount, date, invoice number, etc.) from body text.\n"
+                "ai.summarize turns body text into a readable human summary.\n"
+                "sheets.append_row writes a flat list of values to a tab.\n"
+                "sheets.append_rows writes multiple rows from an array.\n"
+                "slack.send_message is only used when the user explicitly asks to post to Slack.\n"
+                "You can send the same output to both Slack and Sheets — just have both steps reference the same earlier step.\n"
+                "\n"
+                "Gmail search query guide:\n"
+                "  Emails from a company or service → \"from:name OR subject:name\"\n"
+                "  Transaction or payment emails    → \"from:name transaction OR subject:name\"\n"
+                "  Emails with a Gmail label        → \"label:labelname\" (only when user says \"label X\")\n"
+                "  Unread emails                    → \"is:unread\"\n"
+                "  By subject keyword               → \"subject:keyword\"\n"
+                "  By exact sender address          → \"from:someone@domain.com\"\n"
+                "  Everything in inbox              → \"in:inbox\""
+            ),
+            "chaining_examples": [
+                {
+                    "description": "Summarize recent inbox emails",
+                    "steps": [
+                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "in:inbox", "max_results": 3}},
+                        {"integration": "gmail",  "action": "read_emails_batch", "params": {"emails": "${step_1.emails}"}},
+                        {"integration": "ai",     "action": "summarize",         "params": {"text": "${step_2.combined_text}"}},
+                    ],
+                },
+                {
+                    "description": "Extract a value from a service's emails and save to Sheets",
+                    "steps": [
+                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "from:<service> OR subject:<service>", "max_results": 5}},
+                        {"integration": "gmail",  "action": "read_emails_batch", "params": {"emails": "${step_1.emails}"}},
+                        {"integration": "ai",     "action": "extract",           "params": {"text": "${step_2.combined_text}", "fields": ["amount", "date", "description"]}},
+                        {"integration": "sheets", "action": "append_row",        "params": {"values": ["${today}", "${step_3.amount}", "${step_3.description}"], "sheet": "Sheet1"}},
+                    ],
+                },
+                {
+                    "description": "Extract a structured invoice and save to Sheets",
+                    "steps": [
+                        {"integration": "gmail",  "action": "search_emails",    "params": {"query": "subject:invoice", "max_results": 1}},
+                        {"integration": "gmail",  "action": "extract_invoice",  "params": {"message_id": "${step_1.emails[0].id}"}},
+                        {"integration": "sheets", "action": "append_row",       "params": {"values": ["${step_2.vendor}", "${step_2.amount}", "${step_2.due_date}"]}},
+                    ],
+                },
+                {
+                    "description": "Summarize emails and send to both Slack and Sheets",
+                    "steps": [
+                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "from:<sender> OR subject:<topic>", "max_results": 5}},
+                        {"integration": "gmail",  "action": "read_emails_batch", "params": {"emails": "${step_1.emails}"}},
+                        {"integration": "ai",     "action": "summarize",         "params": {"text": "${step_2.combined_text}"}},
+                        {"integration": "slack",  "action": "send_message",      "params": {"channel": "#general", "text": "${step_3.summary}"}},
+                        {"integration": "sheets", "action": "append_row",        "params": {"values": ["${today}", "${step_3.summary}"], "sheet": "Sheet1"}},
+                    ],
+                },
+                {
+                    "description": "Send emails to both Slack and Sheets without summarizing",
+                    "steps": [
+                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "in:inbox", "max_results": 3}},
+                        {"integration": "gmail",  "action": "read_emails_batch", "params": {"emails": "${step_1.emails}"}},
+                        {"integration": "slack",  "action": "send_message",      "params": {"channel": "#general", "text": "${step_2.combined_text}"}},
+                        {"integration": "sheets", "action": "append_rows",       "params": {"rows": "${step_1.emails}", "fields": ["from", "subject", "date"], "sheet": "Sheet1"}},
+                    ],
+                    "note": "step 3 uses bodies from step 2; step 4 uses metadata from step 1",
+                },
+                {
+                    "description": "Transaction or financial emails — extract structured data and fan out",
+                    "steps": [
+                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "from:<service> transaction OR subject:<service>", "max_results": 10}},
+                        {"integration": "gmail",  "action": "read_emails_batch", "params": {"emails": "${step_1.emails}"}},
+                        {"integration": "ai",     "action": "extract",           "params": {"text": "${step_2.combined_text}", "fields": ["amount", "date", "merchant", "transaction_type"]}},
+                        {"integration": "ai",     "action": "summarize",         "params": {"text": "${step_2.combined_text}", "style": "bullet_points"}},
+                        {"integration": "slack",  "action": "send_message",      "params": {"channel": "#general", "text": "${step_4.summary}"}},
+                        {"integration": "sheets", "action": "append_row",        "params": {"values": ["${today}", "${step_3.amount}", "${step_3.merchant}", "${step_3.date}"], "sheet": "Sheet1"}},
+                    ],
+                    "note": (
+                        "step 3 (extract) feeds Sheets with structured fields; step 4 (summarize) feeds Slack. "
+                        "Do not use ${step_3.summary} — ai.extract does not produce a summary field. "
+                        "Do not use ${step_4.amount} — ai.summarize does not produce structured fields."
+                    ),
+                },
+            ],
             "agent_strategy": (
                 "- Emails: call gmail_search_emails first, then choose the right follow-up:\n"
                 "  • invoice/billing email → gmail_extract_invoice (returns structured fields)\n"

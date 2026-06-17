@@ -253,7 +253,7 @@ Examples:
 If "webhook_url" is included, the step runs automatically via HTTP POST.
 If "webhook_url" is absent, the step is shown as a manual action for the user to complete."""
 
-PLANNER_CHAINING_RULES = """\
+PLANNER_CHAINING_SYNTAX = """\
 Passing data between steps:
 Use ${step_N.field} to reference the output of an earlier step, where N is that step's number (starting at 1).
 Always reference a step that comes BEFORE the current one — never reference a step's own number.
@@ -267,104 +267,7 @@ Helpful array shortcuts:
 
 Special date values (resolved automatically at run time — never hardcode a date):
   ${today} → today's date as YYYY-MM-DD
-  ${now}   → current date and time as YYYY-MM-DD HH:MM UTC
-
----
-
-Gmail workflow building blocks:
-
-search_emails is always the first step. It returns metadata (id, subject, sender, date) but not the email body.
-read_emails_batch fetches the body text. Give it ${step_N.emails} from the search step.
-ai.extract pulls specific structured fields (amount, date, invoice number, etc.) from body text.
-ai.summarize turns body text into a readable human summary.
-sheets.append_row writes a flat list of values to a tab.
-sheets.append_rows writes multiple rows from an array.
-slack.send_message is only used when the user explicitly asks to post to Slack.
-You can send the same output to both Slack and Sheets — just have both steps reference the same earlier step.
-
-Gmail search query guide:
-  Emails from a company or service → "from:name OR subject:name"
-  Transaction or payment emails    → "from:name transaction OR subject:name"
-  Emails with a Gmail label        → "label:labelname" (only when user says "label X")
-  Unread emails                    → "is:unread"
-  By subject keyword               → "subject:keyword"
-  By exact sender address          → "from:someone@domain.com"
-  Everything in inbox              → "in:inbox"
-
-Examples:
-
-Summarize recent inbox emails:
-  step_1: gmail.search_emails     {query: "in:inbox", max_results: 3}
-  step_2: gmail.read_emails_batch {emails: "${step_1.emails}"}
-  step_3: ai.summarize            {text: "${step_2.combined_text}"}
-
-Extract a value from a service's emails and save to Sheets:
-  step_1: gmail.search_emails     {query: "from:<service> OR subject:<service>", max_results: 5}
-  step_2: gmail.read_emails_batch {emails: "${step_1.emails}"}
-  step_3: ai.extract              {text: "${step_2.combined_text}", fields: "amount, date, description"}
-  step_4: sheets.append_row       {values: ["${today}", "${step_3.amount}", "${step_3.description}"], sheet: "Sheet1"}
-
-Extract a structured invoice and save to Sheets:
-  step_1: gmail.search_emails     {query: "subject:invoice", max_results: 1}
-  step_2: gmail.extract_invoice   {message_id: "${step_1.emails[0].id}"}
-  step_3: sheets.append_row       {values: ["${step_2.vendor}", "${step_2.amount}", "${step_2.due_date}"]}
-
-Summarize emails and send to both Slack and Sheets:
-  step_1: gmail.search_emails     {query: "from:<sender> OR subject:<topic>", max_results: 5}
-  step_2: gmail.read_emails_batch {emails: "${step_1.emails}"}
-  step_3: ai.summarize            {text: "${step_2.combined_text}"}
-  step_4: slack.send_message      {channel: "#general", text: "${step_3.summary}"}
-  step_5: sheets.append_row       {values: ["${today}", "${step_3.summary}"], sheet: "Sheet1"}
-
-Send emails to both Slack and Sheets without summarizing:
-  step_1: gmail.search_emails     {query: "in:inbox", max_results: 3}
-  step_2: gmail.read_emails_batch {emails: "${step_1.emails}"}
-  step_3: slack.send_message      {channel: "#general", text: "${step_2.combined_text}"}
-  step_4: sheets.append_rows      {rows: "${step_1.emails}", fields: ["from", "subject", "date"], sheet: "Sheet1"}
-  (step_3 uses bodies from step_2; step_4 uses metadata from step_1)
-
-Read Sheets data, summarize it, and send to Slack:
-  step_1: sheets.read_rows   {sheet: "Sheet1"}
-  step_2: ai.summarize       {text: "${step_1.rows}"}
-  step_3: slack.send_message {channel: "#general", text: "${step_2.summary}"}
-
-Read Sheets data, summarize it, and send by email:
-  step_1: sheets.read_rows {sheet: "Sheet1"}
-  step_2: ai.summarize     {text: "${step_1.rows}"}
-  step_3: gmail.send_email {to: "recipient@example.com", subject: "Sheet Summary", body: "${step_2.summary}"}
-
-Transaction or financial emails (receipts, payments) — extract structured data and fan out:
-  step_1: gmail.search_emails     {query: "from:<service> transaction OR subject:<service>", max_results: 10}
-  step_2: gmail.read_emails_batch {emails: "${step_1.emails}"}
-  step_3: ai.extract              {text: "${step_2.combined_text}", fields: ["amount", "date", "merchant", "transaction_type"]}
-  step_4: ai.summarize            {text: "${step_2.combined_text}", style: "bullet_points"}
-  step_5: slack.send_message      {channel: "#general", text: "${step_4.summary}"}
-  step_6: sheets.append_row       {values: ["${today}", "${step_3.amount}", "${step_3.merchant}", "${step_3.date}"], sheet: "Sheet1"}
-  step_3 (extract) feeds Sheets with structured fields like amount and merchant.
-  step_4 (summarize) feeds Slack with a readable bullet-point digest.
-  Do not use ${step_3.summary} — ai.extract does not produce a summary field.
-  Do not use ${step_4.amount} — ai.summarize does not produce structured fields.
-
----
-
-Sheets rules:
-append_row values must be a flat list of simple values, never a dict or nested object.
-Always use ${today} for today's date — never write a hardcoded date string.
-  Correct:   values: ["${today}", 78.3]
-  Wrong:     values: ["2026-06-15", 78.3]
-If the user names a sheet section (e.g. "weight tracking" or "budget tab"), set "sheet" to the closest tab name.
-If no section is named, default to "Sheet1".
-
----
-
-AI step rules:
-ai.summarize produces a "summary" field. Reference it as ${step_N.summary}.
-ai.extract produces the fields you list (e.g. amount, date). Reference them as ${step_N.amount}, ${step_N.date}.
-Do not mix them up — extract gives structured data, summarize gives a readable paragraph.
-ai.summarize can take strings, lists, or arrays for "text" — the engine converts automatically.
-Only add ai.summarize when the user says "summarize", "digest", "analyze", or "process".
-Raw Sheets rows can go directly to Slack without summarizing — the engine formats them as a table.
-Always run ai.summarize before sending email body text to Slack or Sheets."""
+  ${now}   → current date and time as YYYY-MM-DD HH:MM UTC"""
 
 PLANNER_TRIGGER_RULES = """\
 Set the trigger based on how the workflow should start:

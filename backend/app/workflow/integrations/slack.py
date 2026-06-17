@@ -164,6 +164,34 @@ class SlackIntegration(BaseIntegration):
             "use_case": "messaging, channels, notifications",
             "output_keywords": ['"send to Slack"', '"post to Slack"', '"notify on Slack"'],
             "agent_strategy": "- Slack output: slack_send_message — only when explicitly requested",
+            "planner_notes": (
+                f"Only add a slack.send_message step when the user explicitly says \"send to Slack\", "
+                f"\"post to Slack\", or \"notify on Slack\". Never add it for read/fetch/summarize requests.\n"
+                f"Default channel is \"{default_ch}\" — use it whenever the user does not name a channel.\n"
+                f"Never invent a channel name; if a channel is required but not configured, use \"{default_ch}\".\n"
+                f"The \"text\" param accepts any upstream step output: summary (\"${{step_N.summary}}\"), "
+                f"extracted fields, or raw Sheets rows — all are accepted and formatted automatically.\n"
+                f"Do not add slack.send_message AND gmail.send_email for the same output unless the user asks for both."
+            ),
+            "chaining_examples": [
+                {
+                    "description": "Post a summary of recent channel messages back to Slack",
+                    "steps": [
+                        {"integration": "slack", "action": "get_messages",  "params": {"channel": default_ch, "limit": 10}},
+                        {"integration": "ai",    "action": "summarize",     "params": {"text": "${step_1.messages}"}},
+                        {"integration": "slack", "action": "send_message",  "params": {"channel": default_ch, "text": "${step_2.summary}"}},
+                    ],
+                    "note": "step_1 fetches, step_2 summarizes, step_3 posts — never self-reference",
+                },
+                {
+                    "description": "Read a Sheets table and post it to Slack",
+                    "steps": [
+                        {"integration": "sheets", "action": "read_rows",    "params": {"sheet": "Sheet1"}},
+                        {"integration": "slack",  "action": "send_message", "params": {"channel": default_ch, "text": "${step_1.rows}"}},
+                    ],
+                    "note": "raw rows are formatted automatically — no ai.summarize needed unless user asked for a summary",
+                },
+            ],
             "actions": [
                 {"name": "send_message",      "params": {"channel": default_ch, "text": "message text here"}, "output": None},
                 {"name": "post_notification", "params": {"channel": default_ch, "text": "..."},               "output": None},

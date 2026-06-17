@@ -171,7 +171,14 @@ On every startup, `_reset_stuck_executions()` finds any `Execution` rows still i
 
 #### `app/workflow/planner/llm_planner.py` — Workflow Planner
 
-Converts a plain-English description into a `WorkflowDefinition` (name, trigger, and steps list). The system prompt is built **dynamically** each call by querying `IntegrationRegistry` for the current integration specs, available actions, and configured resource IDs — so adding a new integration automatically updates the prompt without touching `prompts.py`.
+Converts a plain-English description into a `WorkflowDefinition` (name, trigger, and steps list). The system prompt is built **dynamically** each call via `_build_system_prompt()` which queries `IntegrationRegistry` for live integration specs, available actions, configured resource IDs, and chaining guidance — so adding a new integration automatically updates the prompt without touching any static string.
+
+`_build_chaining_section(specs)` assembles the multi-step chaining guidance block at call time from three sources:
+1. `PLANNER_CHAINING_SYNTAX` from `prompts.py` — engine-level syntax rules (`${step_N.field}` numbering, array shortcuts, `${today}`/`${now}`)
+2. `spec["planner_notes"]` from each integration — integration-specific rules (e.g. "only add Slack step when user explicitly asks")
+3. `spec["chaining_examples"]` from each integration — step-by-step multi-step patterns contributed by each adapter
+
+This means chaining examples are always consistent with the actual integration code — each adapter owns its own patterns.
 
 Dispatches on `AI_PROVIDER`:
 - `"openrouter"` (default) — OpenAI-compatible client pointed at `https://openrouter.ai/api/v1`
@@ -233,25 +240,34 @@ When `_recover_fixable()` cannot resolve a dispatch error on its own, `_run_reco
 
 Only these integrations are registered (`workflow/integrations/__init__.py`): `gmail`, `slack`, `sheets`, `ai`, `generic`.
 
+Each adapter's `get_planner_spec()` now returns three extra keys that feed directly into the dynamic planner prompt:
+- `planner_notes` — integration-specific rules the LLM must follow (e.g. when to add an output step, which default values to use)
+- `chaining_examples` — list of multi-step patterns with step-by-step `{integration, action, params}` arrays and an optional `note`
+
 **`gmail.py`** — Actions: `search_emails`, `read_email`, `read_emails_batch`, `send_email`, `extract_invoice`, `get_attachments`.
 - Authenticates via DB credentials first (OAuth refresh token from the setup UI), then falls back to `.env`.
 - Also supports Google Service Account JSON (`GOOGLE_SERVICE_ACCOUNT_JSON`) for Workspace deployments.
 - `_recover_fixable` re-searches the inbox when a `message_id` returns 404.
 - `extract_invoice` reads an email body and calls the LLM to extract structured invoice fields.
+- Contributes 6 chaining examples (search → read → summarize, search → read → extract → append, invoice → Sheets, fan-out to Slack + Sheets, etc.).
 
 **`slack.py`** — Actions: `send_message`, `get_messages`, `create_channel`, `post_notification`, `list_channels`.
 - `client` property always does a fresh DB lookup — no caching — so connect/disconnect takes effect immediately without a server restart.
 - `_recover_fixable` resolves channel names to IDs when `channel_not_found` is returned.
 - `_get_recovery_tools` exposes `list_slack_channels` to the inline recovery agent.
+- `planner_notes` encodes the "only add send_message when user explicitly asks for Slack output" rule and the default channel fallback.
+- Contributes 2 chaining examples (channel digest → summarize → post, Sheets → post).
 
 **`sheets.py`** — Actions: `read_sheet`, `write_sheet`, `append_row`, `append_rows`, `search_rows`, `get_spreadsheet_info`.
 - Same DB-first credential pattern.
 - `append_rows` (bulk write) accepts a list of rows to avoid per-row API calls.
+- Contributes 2 chaining examples (read Sheets → summarize → Slack, read Sheets → summarize → email).
 
 **`ai_tools.py`** — Actions: `summarize`, `extract`, `transform`.
 - Accepts any input type: plain string, list-of-lists (Sheets rows), list-of-dicts (email objects).
 - Empty text input returns a graceful result with an explanatory message instead of raising.
 - `extract` spreads extracted fields to the top level so `${step_N.amount}` resolves directly without `${step_N.extracted.amount}`.
+- `planner_notes` explains the `summary` vs `extracted` field distinction and when to add `ai.summarize`.
 
 **`generic.py`** — HTTP webhooks and manual/placeholder steps. Used for any action that doesn't fit the above adapters.
 
@@ -298,22 +314,14 @@ All system prompts live here to make tuning behaviour straightforward without to
 | Constant | Used by |
 |---|---|
 | `PLANNER_INTRO` … `PLANNER_OUTPUT_FORMAT` | Workflow planner (assembled by `_build_system_prompt`) |
-| `PLANNER_CHAINING_RULES` | Teaches the LLM correct `${step_N.field}` numbering for multi-step chains |
+| `PLANNER_CHAINING_SYNTAX` | Engine-level `${step_N.field}` syntax rules, array shortcuts, `${today}`/`${now}` — inserted as the base of `_build_chaining_section` |
 | `AGENT_INTRO` | ReAct agent system prompt prefix |
 | `FAILURE_AGENT_SYSTEM` | Failure recovery agent (`failure_agent.py`) |
 | `INTEGRATION_RECOVERY_SYSTEM` | Inline per-adapter recovery agent (`base.py`) |
 | `EXECUTION_CHAT_SYSTEM` | Post-execution contextual chat |
 | `CHAT_ASSISTANT_SYSTEM` | Aiden general chat |
 
-`PLANNER_CHAINING_RULES` encodes explicit multi-step patterns:
-
-| Pattern | Steps |
-|---|---|
-| A | `search_emails` → `read_emails_batch` → `ai.summarize` |
-| B | `search_emails` → `read_emails_batch` → `ai.summarize` → `slack.send_message` |
-| C | `search_emails` → `read_emails_batch` → `ai.summarize` → `sheets.append_row` |
-| D | `search_emails` → `read_emails_batch` → `slack.send_message` + `sheets.append_rows` |
-| E | `search_emails` → `read_emails_batch` → `ai.summarize` → `slack.send_message` + `sheets.append_row` (5-step; both destinations reference `${step_3.summary}`) |
+`PLANNER_CHAINING_SYNTAX` contains only engine-level rules — step numbering, array shortcuts (`${step_N.list.first}`), and special date values. Integration-specific patterns and chaining examples are no longer hardcoded here; they live in each adapter's `get_planner_spec()` and are assembled at call time by `_build_chaining_section(specs)` in `llm_planner.py`.
 
 ---
 
@@ -389,7 +397,7 @@ Shows after any terminal state (success, failed, cancelled, or skipped). Display
 - Step-by-step results via `StepCard`
 - **Resume button** (for failed or cancelled executions) — calls `POST /api/executions/{id}/resume`
 - **Run Again button** — re-executes from the beginning
-- **Inline chat panel** — contextualised LLM chat about what happened in this run, powered by `POST /api/executions/{id}/chat` which injects the full step results into the system prompt
+- **Inline chat panel** — contextualised LLM chat about what happened in this run, powered by `POST /api/executions/{id}/chat` which injects the full step results into the system prompt. Steps that initially failed but were recovered by the failure agent are annotated with the original error, so the LLM can explain both what went wrong and how it was fixed
 
 ---
 
@@ -436,6 +444,7 @@ The planner system prompt is rebuilt on each call from live `IntegrationRegistry
 - Adding a new integration automatically exposes it to the planner
 - Configured resource IDs (spreadsheet, Slack channel) are injected at call time so the LLM uses the actual values, not placeholders
 - Chaining examples and action catalogs are always in sync with the real code
+- Multi-step patterns (`planner_notes` + `chaining_examples`) are owned by each adapter — adding a new integration means adding its patterns once, in the adapter file, and they immediately appear in the prompt
 
 ### 3. Integration registry pattern
 

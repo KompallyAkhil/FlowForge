@@ -252,6 +252,32 @@ class SheetsIntegration(BaseIntegration):
             "name": "sheets",
             "use_case": "reading/writing Google Sheets rows",
             "output_keywords": ['"save to Sheets"', '"log to Sheets"', '"add to spreadsheet"', '"track in sheets"'],
+            "planner_notes": (
+                "append_row values must be a flat list of simple values, never a dict or nested object.\n"
+                "Always use ${today} for today's date — never write a hardcoded date string.\n"
+                "  Correct:   values: [\"${today}\", 78.3]\n"
+                "  Wrong:     values: [\"2026-06-15\", 78.3]\n"
+                "If the user names a sheet section (e.g. \"weight tracking\" or \"budget tab\"), set \"sheet\" to the closest tab name.\n"
+                "If no section is named, default to \"Sheet1\"."
+            ),
+            "chaining_examples": [
+                {
+                    "description": "Read Sheets data, summarize it, and send to Slack",
+                    "steps": [
+                        {"integration": "sheets", "action": "read_rows",     "params": {"sheet": "Sheet1"}},
+                        {"integration": "ai",     "action": "summarize",     "params": {"text": "${step_1.rows}"}},
+                        {"integration": "slack",  "action": "send_message",  "params": {"channel": "#general", "text": "${step_2.summary}"}},
+                    ],
+                },
+                {
+                    "description": "Read Sheets data, summarize it, and send by email",
+                    "steps": [
+                        {"integration": "sheets", "action": "read_rows",    "params": {"sheet": "Sheet1"}},
+                        {"integration": "ai",     "action": "summarize",    "params": {"text": "${step_1.rows}"}},
+                        {"integration": "gmail",  "action": "send_email",   "params": {"to": "recipient@example.com", "subject": "Sheet Summary", "body": "${step_2.summary}"}},
+                    ],
+                },
+            ],
             "agent_strategy": (
                 "- Sheets output: sheets_append_row — only when explicitly requested\n"
                 "- NEVER include 'spreadsheet_id' or 'range' in any Sheets step params — both are auto-resolved"

@@ -6,7 +6,7 @@ from app.prompts import (
     PLANNER_OUTPUT_STEP_GATE,
     PLANNER_RESOURCE_RULES,
     PLANNER_GENERIC_INTEGRATION,
-    PLANNER_CHAINING_RULES,
+    PLANNER_CHAINING_SYNTAX,
     PLANNER_TRIGGER_RULES,
     PLANNER_OUTPUT_FORMAT,
 )
@@ -18,8 +18,47 @@ def _allowed_integrations() -> set[str]:
     return set(IntegrationRegistry.list_all())
 
 
+def _build_chaining_section(specs: list[dict]) -> str:
+    """
+    Assembles the chaining guidance block entirely from integration registry data.
+
+    Structure:
+      1. Core syntax rules (PLANNER_CHAINING_SYNTAX) — step references, array shortcuts, dates
+      2. Per-integration behavioural notes (spec["planner_notes"]) — rules specific to each adapter
+      3. Step-by-step examples (spec["chaining_examples"]) — multi-step patterns contributed by each adapter
+    """
+    parts: list[str] = [PLANNER_CHAINING_SYNTAX]
+
+    # --- Integration-specific behavioural notes ---
+    note_blocks: list[str] = []
+    for spec in specs:
+        note = spec.get("planner_notes", "").strip()
+        if note:
+            note_blocks.append(f"--- {spec['name']} rules ---\n{note}")
+    if note_blocks:
+        parts.append("\n\n".join(note_blocks))
+
+    # --- Chaining examples rendered from each integration's spec ---
+    example_lines: list[str] = ["Examples:"]
+    for spec in specs:
+        for ex in spec.get("chaining_examples", []):
+            example_lines.append("")
+            example_lines.append(ex["description"] + ":")
+            for j, step in enumerate(ex["steps"], 1):
+                params_str = json.dumps(step["params"])
+                example_lines.append(
+                    f"  step_{j}: {step['integration']}.{step['action']}  {params_str}"
+                )
+            if ex.get("note"):
+                example_lines.append(f"  ({ex['note']})")
+
+    if len(example_lines) > 1:  # at least one example was added
+        parts.append("\n".join(example_lines))
+
+    return "\n\n".join(parts)
+
+
 def _build_system_prompt() -> str:
-    import json as _json
     from datetime import datetime, UTC
     from app.workflow.integrations.base import IntegrationRegistry
 
@@ -47,22 +86,24 @@ def _build_system_prompt() -> str:
     action_lines: list[str] = []
     for spec in specs:
         for action in spec["actions"]:
-            action_lines.append(f"- {spec['name']}.{action['name']}:  {_json.dumps(action['params'])}")
+            action_lines.append(f"- {spec['name']}.{action['name']}:  {json.dumps(action['params'])}")
     known_actions = "\n".join(action_lines)
 
-    # Step output chaining examples (dynamic — built from specs that declare outputs)
+    # Step output shapes (dynamic — built from specs that declare outputs)
     chaining_lines: list[str] = []
     for spec in specs:
         for action in spec["actions"]:
             if action.get("output") is not None:
-                chaining_lines.append(f"- {spec['name']}.{action['name']} returns: {_json.dumps(action['output'])}")
+                chaining_lines.append(f"- {spec['name']}.{action['name']} returns: {json.dumps(action['output'])}")
                 if action.get("output_note"):
                     chaining_lines.append(f"  {action['output_note']}")
     chaining_lines.append('- generic steps return:  {"status": "manual_required", "action": "...", "description": "..."}')
     chaining_lines.append('  → or if webhook:       {"status": "webhook_called", "action": "...", "response": {...}}')
     output_chaining = "\n".join(chaining_lines)
 
-    # Static sections come from prompts.py — edit there to tune behavior
+    # Chaining guidance — syntax + per-integration notes + examples, all from registry
+    chaining_section = _build_chaining_section(specs)
+
     return (
         f"{PLANNER_INTRO}\n\n"
         f"CURRENT DATE/TIME: {current_datetime} ({current_day})\n"
@@ -83,7 +124,7 @@ def _build_system_prompt() -> str:
         f"  Wrong: sheets step at position 4 writing ${{step_4.summary}} (self-reference — always a bug).\n"
         f"  Correct: sheets step at position 4 writing ${{step_3.summary}} (step 3 produced the summary).\n"
         f"{output_chaining}\n\n"
-        f"{PLANNER_CHAINING_RULES}\n\n"
+        f"{chaining_section}\n\n"
         f"{PLANNER_TRIGGER_RULES}\n\n"
         f"{PLANNER_OUTPUT_FORMAT}"
     )
