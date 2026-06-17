@@ -42,100 +42,95 @@ FlowForge lets you describe a multi-step automation in plain English and turns i
 
 ## Architecture Overview
 
-### System diagram
+FlowForge has three layers: a **Next.js frontend**, a **FastAPI backend**, and **external services** (LLM providers + Google/Slack APIs). All communication between frontend and backend is REST/JSON.
+
+### Layers at a glance
+
+| Layer | Tech | Responsibility |
+|---|---|---|
+| Frontend | Next.js (App Router) + TypeScript | Workflow creation, review, live execution view, version history, agent chat, Aiden assistant |
+| Backend | FastAPI + SQLAlchemy + SQLite | LLM planning, step execution, failure recovery, scheduling, integrations, chat |
+| LLM providers | OpenRouter / Groq / Anthropic | Workflow planning, AI tools (summarize/extract/transform), LangGraph agents |
+| External APIs | Gmail API · Slack API · Google Sheets API | Integration step execution |
+
+### Backend subsystems
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                        Browser  (Next.js · :3000)                        │
-│                                                                          │
-│   ┌─────────────┐   ┌────────────────┐   ┌──────────────────────────┐   │
-│   │  Workflow UI│   │  Agent Chat UI │   │   Aiden Chat Assistant   │   │
-│   │  (page.tsx) │   │  (app/agent/)  │   │   (api/chat + memory)    │   │
-│   └──────┬──────┘   └───────┬────────┘   └────────────┬─────────────┘   │
-│          └──────────────────┴─────────────────────────┘                  │
-│                             │  REST / JSON                               │
-└─────────────────────────────┼────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────▼────────────────────────────────────────────┐
-│                       FastAPI Backend  (:8000)                           │
-│                                                                          │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                        API Layer (routers)                       │   │
-│  │  /api/workflows  /api/executions  /api/agent/runs                │   │
-│  │  /api/chat       /api/memory      /api/integrations  /api/tools  │   │
-│  └───────┬──────────────┬───────────────────────────────────────────┘   │
-│          │              │                                                │
-│  ┌───────▼──────┐  ┌────▼──────────────────────────────────────────┐   │
-│  │  LLM Planner │  │              Execution Engine                   │   │
-│  │  (OpenRouter │  │  ┌──────────┐  ┌────────────┐  ┌──────────┐   │   │
-│  │   / Groq /   │  │  │ Step run │→ │ 4-layer    │→ │ Log write│   │   │
-│  │   Anthropic) │  │  │ + retry  │  │ recovery   │  │ to DB    │   │   │
-│  └───────┬──────┘  │  └──────────┘  └────────────┘  └──────────┘   │   │
-│          │         └──────────────────────────┬─────────────────────┘   │
-│  ┌───────▼──────────────────────────────────── ▼──────────────────┐     │
-│  │            LangGraph — 3 instantiation sites                    │     │
-│  │  agentic_runner.py — ReAct agent; invoked from /api/agent/runs  │     │
-│  │  failure_agent.py  — exec-engine failure path (retries > max)   │     │
-│  │  base.py inline    — per-adapter recovery graph on dispatch err  │     │
-│  └───────────────────────────┬─────────────────────────────────────┘     │
-│                              │                                           │
-│  ┌───────────────────────────▼─────────────────────────────────────┐    │
-│  │                  Integration Adapters                            │    │
-│  │  Gmail ·  Slack ·  Google Sheets ·  AI Tools ·  Generic HTTP    │    │
-│  └────────┬──────────────┬────────────────────┬────────────────────┘    │
-│           │              │                    │                          │
-│  ┌────────▼──┐   ┌───────▼───┐   ┌───────────▼─────┐                  │
-│  │ SQLite DB │   │APScheduler│   │  LLM Factory     │                  │
-│  │workflow.db│   │  (cron)   │   │  core/llm.py     │                  │
-│  └───────────┘   └───────────┘   └────────┬─────────┘                  │
-└──────────────────────────────────────────┼───────────────────────────────┘
-                                           │
-┌──────────────────────────────────────────▼──────────────────────────────┐
-│                      External Services                                   │
-│   OpenRouter / Groq / Anthropic   ·   Gmail API   ·   Slack API         │
-│                                       Google Sheets API                  │
-└──────────────────────────────────────────────────────────────────────────┘
+API Routers
+  ├── /api/workflows    → LLM Planner → WorkflowDefinition JSON
+  ├── /api/executions   → Execution Engine (step runner + 4-layer recovery)
+  ├── /api/agent/runs   → LangGraph ReAct Agent (free-form tool use)
+  ├── /api/chat         → Aiden Chat Assistant (multi-turn + memory)
+  └── /api/integrations → OAuth + token management
+
+Execution Engine
+  └── for each step: resolve refs → call adapter → recover on failure → log
+
+Integration Adapters (self-registering via IntegrationRegistry)
+  └── gmail · slack · sheets · ai_tools · generic
+
+LangGraph (3 uses)
+  ├── agentic_runner.py  — ReAct agent for /api/agent/runs
+  ├── failure_agent.py   — step repair after retries exhausted
+  └── base.py inline     — per-adapter resource discovery on dispatch error
+
+Persistence
+  └── SQLite:  Workflow · Execution · ExecutionLog · WorkflowVersion
+               AgentRun · AgentStep · IntegrationCredential
 ```
 
 ### Workflow lifecycle
 
-```
-User types natural language
-        │
-        ▼
-POST /api/workflows/    ──►  LLM Planner  ──►  WorkflowDefinition JSON
-        │                                              │
-        ▼                                             DB (status = "draft")
-   Review UI  ◄──────────────────────────────────────┘
-   (inspect, edit steps, chat to refine)
-        │
-        ├── Reject  ──►  status = "rejected"  (must edit before re-approving)
-        │
-        └── Approve ──►  status = "approved"  ──►  Execution Engine
-                                                         │
-                                              Per-step loop:
-                                              1. resolve ${step_N.field} refs
-                                              2. call integration adapter
-                                              3. on error → 4-layer recovery
-                                              4. write ExecutionLog to DB
-                                              5. check for cancellation signal
-                                                         │
-                                              status = "success" | "failed" | "cancelled"
-                                                         │
-                                                     Done view
-                                              (post-run LLM chat available)
-```
+```mermaid
+flowchart TD
+    A([User: describe automation in plain English]) --> B
 
-### Data model
+    subgraph PLAN ["① Plan"]
+        B[POST /api/workflows/] --> C[LLM Planner\nbuild prompt from IntegrationRegistry]
+        C --> D[WorkflowDefinition JSON\nname · trigger · steps]
+        D --> E[(DB — status: draft)]
+    end
 
-```
-Workflow ─── has many ──► WorkflowVersion   (snapshot on every save)
-         ─── has many ──► Execution
-                              └─── has many ──► ExecutionLog  (one per step)
+    subgraph REVIEW ["② Review"]
+        E --> F[Review UI\ninspect · edit steps · chat to refine]
+        F --> G{User decision}
+        G -- Reject --> H([status: rejected\nmust edit before re-approving])
+        G -- Re-plan --> C
+        G -- Approve & Run --> I[POST /approve?execute=true\nstatus: approved]
+    end
 
-AgentRun ─── has many ──► AgentStep
+    subgraph EXECUTE ["③ Execute  — one iteration per step"]
+        I --> J[Resolve step refs\n'${step_N.field}' two-pass expansion]
+        J --> K[Call integration adapter\ngmail · slack · sheets · ai · generic]
+        K --> L{Success?}
+        L -- Yes --> M[Write ExecutionLog\nstatus: success]
+        M --> N{More steps?}
+        N -- Yes --> J
+        N -- No --> O([Execution: success])
+        L -- No --> R
+    end
 
-IntegrationCredential  (one row per integration — gmail, slack, sheets)
+    subgraph RECOVER ["④ 4-layer failure recovery"]
+        R[Layer 1: _recover_fixable\npure-Python fix per adapter] --> R1{Fixed?}
+        R1 -- Yes --> M
+        R1 -- No --> S[Layer 2: inline LangGraph\nper-adapter resource discovery]
+        S --> S1{Fixed?}
+        S1 -- Yes --> M
+        S1 -- No --> T[Layer 3: raw retry]
+        T --> T1{Fixed?}
+        T1 -- Yes --> M
+        T1 -- No --> U[Layer 4: failure_agent\nfull LangGraph ReAct]
+        U --> U1{Fixed?}
+        U1 -- Yes --> M
+        U1 -- No --> V([Execution: failed])
+    end
+
+    subgraph DONE ["⑤ Done"]
+        O --> W[Done View]
+        V --> W
+        W --> X[Post-run LLM chat\nstep results injected into prompt]
+        W --> Y[Resume failed execution\nfrom last successful step]
+    end
 ```
 
 ---
