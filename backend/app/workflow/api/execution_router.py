@@ -42,23 +42,44 @@ def get_execution_logs(execution_id: str, db: Session = Depends(get_db)):
     return execution_engine.get_execution_logs(db, execution_id)
 
 
+@router.post("/{execution_id}/cancel", response_model=ExecutionResponse)
+def cancel_execution(execution_id: str, db: Session = Depends(get_db)):
+    """Request cancellation of a running execution.
+
+    Sets status to 'cancelled' immediately. The background task detects this
+    at the next step boundary and stops cleanly, preserving current_step so
+    the execution can be resumed later.
+    """
+    ex = execution_engine.get_execution(db, execution_id)
+    if not ex:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    if ex.status != "running":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only running executions can be cancelled (current status: '{ex.status}')",
+        )
+    try:
+        return execution_engine.cancel_execution(db, execution_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/{execution_id}/resume", response_model=ExecutionResponse, status_code=202)
 def resume_execution(
     execution_id: str,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    """Resume a failed execution from the step it stopped at."""
+    """Resume a failed or cancelled execution from the step it stopped at."""
     ex = execution_engine.get_execution(db, execution_id)
     if not ex:
         raise HTTPException(status_code=404, detail="Execution not found")
-    if ex.status != "failed":
+    if ex.status not in ("failed", "cancelled"):
         raise HTTPException(
             status_code=400,
-            detail=f"Only failed executions can be resumed (current status: '{ex.status}')",
+            detail=f"Only failed or cancelled executions can be resumed (current status: '{ex.status}')",
         )
     background_tasks.add_task(execution_engine.resume_in_background, execution_id)
-    # Return immediately with status still as "failed"; client should poll
     return ex
 
 
@@ -90,27 +111,46 @@ async def chat_with_execution(
     steps_summary = "\n".join(step_lines) if step_lines else "  (no steps)"
 
     # ── Build results summary from execution logs ─────────────────────────────
-    log_map: dict[int, object] = {}
+    # Group ALL logs per step (a step can have multiple: initial failure + agent recovery)
+    log_groups: dict[int, list] = {}
     for log in logs:
-        log_map[log.step_index] = log
+        log_groups.setdefault(log.step_index, []).append(log)
 
     result_lines = []
     for i, s in enumerate(steps):
-        log = log_map.get(i)
-        if log is None:
+        step_logs = log_groups.get(i, [])
+        if not step_logs:
             result_lines.append(f"  step_{i+1} ({s.get('name','')}): did not run")
             continue
-        status = log.status.upper()
-        if log.output_data:
-            # Trim large outputs so they fit in the context window
-            out_str = json.dumps(log.output_data, default=str)
+
+        # Final log determines ultimate status; earlier logs may show the initial failure
+        final_log = step_logs[-1]
+        status = final_log.status.upper()
+
+        # Detect agent-fixed steps: multiple logs where earlier ones failed
+        agent_recovered = (
+            len(step_logs) > 1
+            and any(l.status == "failed" for l in step_logs[:-1])
+            and final_log.status == "success"
+        )
+        recovery_note = " (initially failed — recovered automatically by the failure agent)" if agent_recovered else ""
+
+        if final_log.output_data:
+            out_str = json.dumps(final_log.output_data, default=str)
             if len(out_str) > 600:
                 out_str = out_str[:600] + "…"
-            result_lines.append(f"  step_{i+1} ({s.get('name','')}): {status} → {out_str}")
-        elif log.error:
-            result_lines.append(f"  step_{i+1} ({s.get('name','')}): {status} — ERROR: {log.error}")
+            result_lines.append(f"  step_{i+1} ({s.get('name','')}): {status}{recovery_note} → {out_str}")
+        elif final_log.error:
+            result_lines.append(f"  step_{i+1} ({s.get('name','')}): {status}{recovery_note} — ERROR: {final_log.error}")
         else:
-            result_lines.append(f"  step_{i+1} ({s.get('name','')}): {status}")
+            result_lines.append(f"  step_{i+1} ({s.get('name','')}): {status}{recovery_note}")
+
+        # Include the original failure message so the LLM can explain what went wrong
+        if agent_recovered:
+            first_failure = next((l for l in step_logs if l.status == "failed"), None)
+            if first_failure and first_failure.error:
+                result_lines.append(f"    (original error before recovery: {first_failure.error})")
+
     results_summary = "\n".join(result_lines) if result_lines else "  (no results)"
 
     # ── Build system prompt ───────────────────────────────────────────────────

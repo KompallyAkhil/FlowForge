@@ -204,7 +204,7 @@ The system prompt is **built dynamically** via `_build_system_prompt()` which pu
 | `PLANNER_TRIGGER_RULES` | Cron / trigger field instructions |
 | `PLANNER_OUTPUT_FORMAT` | Integration/action allowlist and JSON schema |
 | `EXECUTION_CHAT_SYSTEM` | System prompt for post-execution chat (injected with workflow + results context) |
-| `CHAT_ASSISTANT_SYSTEM` | System prompt for the Flo general chat assistant |
+| `CHAT_ASSISTANT_SYSTEM` | System prompt for the FlowForge general chat assistant |
 | `AGENT_INTRO` | System prompt prefix for the LangGraph ReAct agent |
 | `FAILURE_AGENT_SYSTEM` | System prompt for the LangGraph failure-recovery agent (`failure_agent.py`) |
 

@@ -1,4 +1,4 @@
-export type ExecutionStatus = "pending" | "running" | "success" | "failed" | "paused"
+export type ExecutionStatus = "pending" | "running" | "success" | "failed" | "cancelled"
 export type LogStatus = "success" | "failed" | "skipped"
 
 export interface WorkflowStep {

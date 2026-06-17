@@ -189,8 +189,11 @@ function WorkflowsContent({
   const pageTitle = () => {
     if (wfView.type === "review")    return "Review Plan"
     if (wfView.type === "executing") return "Executing"
-    if (wfView.type === "done")
-      return wfView.execution.status === "failed" ? "Execution Failed" : "Execution Complete"
+    if (wfView.type === "done") {
+      if (wfView.execution.status === "failed")    return "Execution Failed"
+      if (wfView.execution.status === "cancelled") return "Execution Stopped"
+      return "Execution Complete"
+    }
     if (selected && showHistory)     return "Execution History"
     if (selected && showVersions)    return "Version History"
     return selected ? selected.name : null

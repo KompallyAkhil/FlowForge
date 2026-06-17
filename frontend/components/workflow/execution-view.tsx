@@ -6,8 +6,11 @@ import { statusColor, calcElapsed } from "@/lib/utils"
 import { Spinner } from "@/components/ui/spinner"
 import { Dot } from "@/components/ui/dot"
 import { Badge } from "@/components/ui/badge"
+import { Btn } from "@/components/ui/button"
 import { StepCard } from "./step-card"
 import * as api from "@/lib/api"
+
+const TERMINAL = new Set(["success", "failed", "cancelled"])
 
 function deriveStepStatus(
   stepIndex: number,
@@ -34,8 +37,9 @@ interface ExecutionViewProps {
 }
 
 export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewProps) {
-  const [ex, setEx]     = useState<Execution | null>(null)
-  const [logs, setLogs] = useState<ExecutionLog[]>([])
+  const [ex, setEx]         = useState<Execution | null>(null)
+  const [logs, setLogs]     = useState<ExecutionLog[]>([])
+  const [stopping, setStopping] = useState(false)
   const doneRef   = useRef(false)
   const onDoneRef = useRef(onDone)
   const steps     = workflow.workflow_json.steps as WorkflowStep[]
@@ -43,31 +47,42 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
   useEffect(() => { onDoneRef.current = onDone }, [onDone])
 
   useEffect(() => {
-    let cancelled = false
+    let unmounted = false
 
     async function poll() {
-      if (cancelled || doneRef.current) return
+      if (unmounted || doneRef.current) return
       try {
         const [data, liveLogs] = await Promise.all([
           api.getExecution(executionId),
           api.getExecutionLogs(executionId).catch(() => [] as ExecutionLog[]),
         ])
-        if (!cancelled) {
+        if (!unmounted) {
           setEx(data)
           setLogs(liveLogs)
         }
-        if ((data.status === "success" || data.status === "failed") && !doneRef.current) {
+        if (TERMINAL.has(data.status) && !doneRef.current) {
           doneRef.current = true
-          if (!cancelled) onDoneRef.current(data, liveLogs)
+          if (!unmounted) onDoneRef.current(data, liveLogs)
           return
         }
       } catch { /* ignore transient errors */ }
-      if (!cancelled) setTimeout(poll, 1500)
+      if (!unmounted) setTimeout(poll, 1500)
     }
 
     poll()
-    return () => { cancelled = true }
+    return () => { unmounted = true }
   }, [executionId])
+
+  async function handleStop() {
+    if (stopping) return
+    setStopping(true)
+    try {
+      await api.cancelExecution(executionId)
+      // Polling will detect "cancelled" and call onDone automatically
+    } catch {
+      setStopping(false)
+    }
+  }
 
   if (!ex) {
     return (
@@ -91,6 +106,8 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
           <div className="font-medium text-[14px] text-primary">
             {ex.status === "running"
               ? `Step ${ex.current_step + 1} of ${steps.length} · ${steps[ex.current_step]?.name ?? "…"}`
+              : ex.status === "cancelled"
+              ? "Execution stopped"
               : `Execution ${ex.status}`}
           </div>
           <div className="text-[12px] text-muted mt-0.5">
@@ -99,7 +116,14 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
             {agentFixed ? " · ⚡ Agent recovered a step" : ""}
           </div>
         </div>
-        <Badge label={ex.status} color={statusColor(ex.status)} />
+        <div className="flex items-center gap-2">
+          {ex.status === "running" && (
+            <Btn variant="ghost" small onClick={handleStop} disabled={stopping}>
+              {stopping ? "Stopping…" : "⏹ Stop"}
+            </Btn>
+          )}
+          <Badge label={ex.status} color={statusColor(ex.status)} />
+        </div>
       </div>
 
       {/* Live warnings */}
@@ -130,6 +154,20 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
             Execution Failed
           </div>
           <div className="text-[12.5px] text-danger/85 font-mono leading-relaxed">{ex.error}</div>
+        </div>
+      )}
+
+      {/* Cancelled banner */}
+      {ex.status === "cancelled" && (
+        <div className="rounded-xl p-4"
+          style={{ background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.22)" }}
+        >
+          <div className="text-[11px] font-semibold tracking-[0.08em] uppercase mb-1" style={{ color: "#818cf8" }}>
+            Stopped by user
+          </div>
+          <div className="text-[12.5px] font-mono leading-relaxed" style={{ color: "#818cf8" }}>
+            Execution paused at step {ex.current_step + 1} · Resume to continue from here
+          </div>
         </div>
       )}
 

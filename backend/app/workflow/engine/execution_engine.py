@@ -1,5 +1,4 @@
 import uuid
-import re
 import json
 import logging
 import time
@@ -113,163 +112,147 @@ def list_executions(db: Session, workflow_id: str) -> list[Execution]:
 # ── Step output chaining ─────────────────────────────────────────────────────
 
 def _resolve_params(params: dict, step_outputs: dict[int, dict]) -> dict:
-    """
-    Replace ${step_N.field}, ${step_N.list[0].field}, and ${step_N.list[*].field}
-    placeholders with actual values from previous step outputs. N is 1-indexed.
-
-    Two-pass strategy:
-      Pass 1 — "full-value" refs: when ${...} is the ENTIRE JSON string value,
-                the surrounding quotes are replaced too so lists/dicts become
-                real JSON arrays/objects (not strings).
-      Pass 2 — inline refs: ${...} embedded inside a larger string stays a string.
-    """
-    params_str = json.dumps(params)
+    """Walk params and replace step references with actual values from prior steps."""
 
     def _resolve_ref(ref: str):
-        """
-        Resolve a dotted reference like 'step_1.channels[*].name' or
-        'step_1.emails[0].id' to its Python value.
-        Also resolves runtime date constants: ${today}, ${now}.
-        Returns None when the path cannot be resolved.
-        Raises EmptyResultsError when an indexed list exists but is empty.
-        """
-        # ── Runtime date/time constants ───────────────────────────────────────
+        """Turn 'step_2.emails[0].id' or 'today' into the actual Python value."""
         if ref == "today":
             return datetime.now(UTC).strftime("%Y-%m-%d")
         if ref == "now":
             return datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
-        parts = ref.split(".")
-        step_part = parts[0]
-
-        if not step_part.startswith("step_"):
+        if not ref.startswith("step_"):
             return None
+
+        parts = ref.split(".")
+        underscore = parts[0].find("_")
         try:
-            step_idx = int(step_part.split("_")[1]) - 1
-        except (IndexError, ValueError):
+            step_idx = int(parts[0][underscore + 1:]) - 1
+        except (ValueError, IndexError):
             return None
 
         if step_idx not in step_outputs:
             return None
 
-        value = step_outputs[step_idx]
-        i = 0
-        remaining = parts[1:]
+        return _walk(step_outputs[step_idx], parts[1:])
 
-        while i < len(remaining):
-            part = remaining[i]
+    def _walk(value, parts: list):
+        """Follow a dotted path like ['emails[0]', 'id'] into value."""
+        if not parts:
+            return value
 
-            # ── Wildcard [*]: channels[*] or channels[*].name ────────────────
-            wildcard_m = re.match(r"^(\w+)\[\*\]$", part)
-            if wildcard_m:
-                key = wildcard_m.group(1)
-                if not (isinstance(value, dict) and key in value):
-                    return None
-                lst = value[key]
+        part = parts[0]
+        rest = parts[1:]
+        bracket = part.find("[")
+
+        if bracket != -1:
+            key      = part[:bracket]
+            accessor = part[bracket + 1:-1]  # content between [ and ]
+
+            if not (isinstance(value, dict) and key in value):
+                return None
+            lst = value[key]
+
+            if accessor == "*":
                 if not isinstance(lst, list):
                     return None
-                sub_parts = remaining[i + 1:]          # path after [*]
-                if sub_parts:
-                    extracted = []
-                    for item in lst:
-                        v = item
-                        for sp in sub_parts:
-                            v = v.get(sp, "") if isinstance(v, dict) else ""
-                        extracted.append(v)
-                    return extracted
-                return lst                              # no sub-path → whole array
+                if rest:
+                    return [(_walk(item, rest) or "") for item in lst]
+                return lst
 
-            # ── Numeric index: emails[0] ─────────────────────────────────────
-            arr_m = re.match(r"^(\w+)\[(\d+)\]$", part)
-            if arr_m:
-                key, idx = arr_m.group(1), int(arr_m.group(2))
-                if isinstance(value, dict) and key in value:
-                    lst = value[key]
-                    if isinstance(lst, list) and idx < len(lst):
-                        value = lst[idx]
-                    elif isinstance(lst, list):
-                        raise EmptyResultsError(
-                            f"Step {step_idx + 1} returned 0 results for '{key}'. "
-                            "No data to process — the search query found nothing."
-                        )
-                    else:
-                        return None
-                else:
-                    return None
-                i += 1
-                continue
-
-            # ── .length on a list → count ────────────────────────────────────
-            if part == "length" and isinstance(value, list):
-                value = len(value)
-                i += 1
-                continue
-
-            # ── .first / .last on a list ─────────────────────────────────────
-            if part == "first" and isinstance(value, list):
-                value = value[0] if value else None
-                i += 1
-                continue
-            if part == "last" and isinstance(value, list):
-                value = value[-1] if value else None
-                i += 1
-                continue
-
-            # ── Plain key ────────────────────────────────────────────────────
-            if isinstance(value, dict) and part in value:
-                value = value[part]
-            else:
+            try:
+                idx = int(accessor)
+            except ValueError:
                 return None
-            i += 1
 
-        return value
+            if not isinstance(lst, list):
+                return None
+            if idx >= len(lst):
+                raise EmptyResultsError(
+                    f"Step returned 0 results for '{key}'. "
+                    "No data to process — the search query found nothing."
+                )
+            return _walk(lst[idx], rest)
 
-    # ── Pass 1: full-value replacement "\"${...}\"" ──────────────────────────
-    # Regex captures ONLY the ref content (e.g. "step_1.emails"), NOT the ${} wrapper,
-    # so _resolve_ref receives "step_1.emails" instead of "${step_1.emails}".
-    # When the resolved value is a list or dict, the surrounding JSON quotes are removed
-    # and the raw JSON array/object is substituted — preserving the correct Python type.
-    def _replace_full(match: re.Match) -> str:
-        ref   = match.group(1)
-        value = _resolve_ref(ref)
-        if value is None:
-            return match.group(0)
-        if isinstance(value, (dict, list)):
-            return json.dumps(value)
-        return json.dumps(str(value))
+        if part == "length" and isinstance(value, list):
+            return _walk(len(value), rest)
+        if part == "first" and isinstance(value, list):
+            return _walk(value[0] if value else None, rest)
+        if part == "last" and isinstance(value, list):
+            return _walk(value[-1] if value else None, rest)
+        if isinstance(value, dict) and part in value:
+            return _walk(value[part], rest)
 
-    params_str = re.sub(r'"\$\{([^}]+)\}"', _replace_full, params_str)
+        return None
 
-    # ── Pass 2: inline replacement ${...} inside a larger string ─────────────
-    def _replace_inline(match: re.Match) -> str:
-        ref   = match.group(1)
-        value = _resolve_ref(ref)
-        if value is None:
-            return match.group(0)
-        if isinstance(value, (dict, list)):
-            return json.dumps(value)
-        return json.dumps(str(value))[1:-1]   # strip outer quotes for inline use
+    def _resolve_str(s: str):
+        """Replace all ${...} placeholders in a string value."""
+        if "${" not in s:
+            return s
 
-    params_str = re.sub(r'\$\{([^}]+)\}',          _replace_inline, params_str)
-    params_str = re.sub(r'\{\{\s*([^}]+?)\s*\}\}', _replace_inline, params_str)
+        # Full-value ref: the whole string is "${step_N.field}" → preserve Python type
+        stripped = s.strip()
+        if stripped.startswith("${") and stripped.endswith("}") and stripped.count("${") == 1:
+            ref      = stripped[2:-1]
+            resolved = _resolve_ref(ref)
+            if resolved is not None:
+                return resolved
 
-    try:
-        return json.loads(params_str)
-    except json.JSONDecodeError:
-        return params
+        # Inline ref: "${...}" is embedded inside a larger string → always a string
+        result    = ""
+        remaining = s
+        while "${" in remaining:
+            before, tail = remaining.split("${", 1)
+            result += before
+            if "}" in tail:
+                ref, remaining = tail.split("}", 1)
+                resolved = _resolve_ref(ref)
+                if resolved is not None:
+                    result += json.dumps(resolved) if isinstance(resolved, (dict, list)) else str(resolved)
+                else:
+                    result += "${" + ref + "}"
+            else:
+                result += "${" + tail
+                remaining = ""
+        result += remaining
+        return result
+
+    def _resolve_node(node):
+        if isinstance(node, dict):
+            return {k: _resolve_node(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [_resolve_node(item) for item in node]
+        if isinstance(node, str):
+            return _resolve_str(node)
+        return node
+
+    return _resolve_node(params)
 
 
 # ── Core execution ────────────────────────────────────────────────────────────
 
 def _assert_no_unresolved_refs(params: dict, step_name: str) -> None:
-    """Raise a clear error if any ${step_N.field} placeholders survived resolution.
+    """Raise if any ${step_N.field} placeholders survived resolution."""
+    unresolved = []
 
-    This catches planner bugs (wrong step number, referencing the current step) before
-    they silently write a literal placeholder string into Gmail, Slack, or Sheets.
-    """
-    params_str = json.dumps(params)
-    # Only flag ${step_N.field} patterns — not generic ${variable} in email/text content.
-    unresolved = re.findall(r'\$\{(step_[^}]+)\}', params_str)
+    def _check(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                _check(v)
+        elif isinstance(node, list):
+            for item in node:
+                _check(item)
+        elif isinstance(node, str):
+            remaining = node
+            while "${step_" in remaining:
+                _, tail = remaining.split("${step_", 1)
+                if "}" in tail:
+                    ref, remaining = tail.split("}", 1)
+                    unresolved.append("step_" + ref)
+                else:
+                    break
+
+    _check(params)
     if unresolved:
         raise ValueError(
             f"Step '{step_name}' has unresolved output references: "
@@ -313,6 +296,14 @@ def run_execution(db: Session, execution_id: str) -> Execution:
     for i, step in enumerate(steps[execution.current_step:], start=execution.current_step):
         execution.current_step = i
         db.commit()
+
+        # Check for user-requested cancellation before starting each step
+        db.refresh(execution)
+        if execution.status == "cancelled":
+            execution.completed_at = execution.completed_at or datetime.now(UTC)
+            db.commit()
+            logger.info("Execution %s cancelled by user at step %d", execution_id, i + 1)
+            return execution
 
         logger.info(
             "Execution %s — step %d/%d: %s.%s",
@@ -416,13 +407,33 @@ def run_execution(db: Session, execution_id: str) -> Execution:
     return execution
 
 
-def resume_execution(db: Session, execution_id: str) -> Execution:
-    """Resume a failed execution from the step it stopped at."""
+def cancel_execution(db: Session, execution_id: str) -> Execution:
+    """Request cancellation of a running execution.
+
+    Sets status to 'cancelled' in the DB. The background task detects this
+    at the next step boundary and stops cleanly, preserving current_step so
+    the execution can be resumed later.
+    """
     execution = get_execution(db, execution_id)
     if not execution:
         raise ValueError(f"Execution '{execution_id}' not found")
-    if execution.status != "failed":
-        raise ValueError(f"Only failed executions can be resumed (current status: {execution.status})")
+    if execution.status != "running":
+        raise ValueError(f"Only running executions can be cancelled (current status: {execution.status})")
+    execution.status = "cancelled"
+    execution.error = "Stopped by user"
+    db.commit()
+    db.refresh(execution)
+    logger.info("Execution %s cancellation requested", execution_id)
+    return execution
+
+
+def resume_execution(db: Session, execution_id: str) -> Execution:
+    """Resume a failed or cancelled execution from the step it stopped at."""
+    execution = get_execution(db, execution_id)
+    if not execution:
+        raise ValueError(f"Execution '{execution_id}' not found")
+    if execution.status not in ("failed", "cancelled"):
+        raise ValueError(f"Only failed or cancelled executions can be resumed (current status: {execution.status})")
 
     execution.status = "running"
     execution.error = None

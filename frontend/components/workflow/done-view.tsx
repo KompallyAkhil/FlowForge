@@ -20,11 +20,14 @@ interface DoneViewProps {
 export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBack }: DoneViewProps) {
   const steps      = workflow.workflow_json.steps
   const failed     = execution.status === "failed"
+  const cancelled  = execution.status === "cancelled"
   const hasSkipped = logs.some(l => l.status === "skipped")
 
-  const resultColor = failed ? "#ef4444" : hasSkipped ? "#f59e0b" : "#22c55e"
+  const resultColor = failed ? "#ef4444" : cancelled ? "#818cf8" : hasSkipped ? "#f59e0b" : "#22c55e"
   const resultTitle = failed
     ? "Execution Failed"
+    : cancelled
+    ? "Execution Stopped"
     : hasSkipped ? "Completed — no results found"
     : "Execution Complete"
 
@@ -83,7 +86,7 @@ export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBa
           className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 font-bold"
           style={{ background: resultColor + "12", color: resultColor }}
         >
-          {failed ? "✗" : hasSkipped ? "◎" : "✓"}
+          {failed ? "✗" : cancelled ? "⏹" : hasSkipped ? "◎" : "✓"}
         </div>
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-[15px] text-primary">{resultTitle}</div>
@@ -99,9 +102,11 @@ export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBa
           )}
         </div>
         <div className="flex flex-col gap-2 shrink-0">
-          {failed && <Btn variant="warning" onClick={onResume} small>↺ Resume</Btn>}
-          <Btn variant={failed ? "ghost" : "success"} onClick={onRunAgain} small>
-            {failed ? "Try Again" : "▶ Run Again"}
+          {(failed || cancelled) && (
+            <Btn variant="warning" onClick={onResume} small>↺ Resume</Btn>
+          )}
+          <Btn variant={(failed || cancelled) ? "ghost" : "success"} onClick={onRunAgain} small>
+            {(failed || cancelled) ? "↺ Try Again" : "▶ Run Again"}
           </Btn>
         </div>
       </div>
@@ -118,7 +123,7 @@ export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBa
             const st = log
               ? (log.status === "success" ? "success" : log.status === "skipped" ? "skipped" : "failed")
               : (i < execution.current_step ? "success"
-                : i === execution.current_step && failed ? "failed" : "pending")
+                : i === execution.current_step && (failed || cancelled) ? "failed" : "pending")
             return (
               <StepCard
                 key={step.id}

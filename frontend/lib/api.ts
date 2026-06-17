@@ -105,6 +105,9 @@ export const getExecution = (id: string): Promise<Execution> =>
 export const getExecutionLogs = (id: string): Promise<ExecutionLog[]> =>
   req(`/api/executions/${id}/logs`)
 
+export const cancelExecution = (id: string): Promise<Execution> =>
+  req(`/api/executions/${id}/cancel`, { method: "POST" })
+
 export const resumeExecution = (id: string): Promise<Execution> =>
   req(`/api/executions/${id}/resume`, { method: "POST" })
 

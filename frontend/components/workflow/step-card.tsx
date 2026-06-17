@@ -35,6 +35,7 @@ export function StepCard({ step, index, stepStatus, log, allStepLogs, onEdit, on
     "rgba(255,255,255,0.08)"
 
   return (
+    <>
     <div
       className="anim-fade rounded-xl overflow-hidden transition-all duration-200"
       style={{ background: "#18181b", border: `1px solid ${borderColor}` }}
@@ -134,12 +135,7 @@ export function StepCard({ step, index, stepStatus, log, allStepLogs, onEdit, on
 
       {/* Expanded */}
       {open && (
-        <div className="anim-slide px-4 pb-4 flex flex-col gap-3">
-          <div className="border-t border-white/[0.06] pt-3">
-            <div className="text-[10.5px] text-muted mb-2 font-semibold tracking-[0.1em] uppercase">Parameters</div>
-            <pre className="code-block">{JSON.stringify(step.params, null, 2)}</pre>
-          </div>
-
+        <div className="anim-slide px-4 pb-4 flex flex-col gap-3 border-t border-white/[0.06] pt-3">
           {st === "skipped" && Boolean(log?.output_data?.reason) && (
             <div className="rounded-lg px-3.5 py-2.5" style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)" }}>
               <div className="text-[11px] text-warning font-semibold mb-1">Skipped — no upstream results</div>
@@ -171,5 +167,6 @@ export function StepCard({ step, index, stepStatus, log, allStepLogs, onEdit, on
         </div>
       )}
     </div>
+      </>
   )
 }
