@@ -8,7 +8,10 @@ FlowForge lets you describe a multi-step automation in plain English and turns i
 ---
 # Demo Video 
 
-https://github.com/user-attachments/assets/c2b70c05-0253-4c32-95f3-7d83899be340
+
+https://github.com/user-attachments/assets/3ecbe1af-69b4-4c04-90e4-ae045eb6e9ac
+
+
 
 ## Table of Contents
 
