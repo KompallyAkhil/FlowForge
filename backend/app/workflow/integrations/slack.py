@@ -166,6 +166,12 @@ class SlackIntegration(BaseIntegration):
 
         raise exc
 
+    # ── HITL resource creation ────────────────────────────────────────────────
+
+    def create_resource(self, resource_type: str, resource_name: str, _extra: dict) -> None:
+        if resource_type == "channel":
+            self.execute("create_channel", {"name": resource_name.lstrip("#")})
+
     # ── Agent tools (exposed to the LangGraph agent) ─────────────────────────
 
     def get_agent_tools(self) -> list:

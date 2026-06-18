@@ -90,37 +90,50 @@ Persistence
 ### System architecture
 
 ```mermaid
-flowchart LR
-    User([User]) --> FE
+flowchart TB
+    User(["👤 User"])
+    User --> FE["🖥️ Next.js Frontend\nCreate · Review · Execute · Done · Agent Chat"]
 
-    FE[Next.js Frontend\nCreate · Review · Execute · Agent Chat]
+    FE -->|plan workflow| Planner
+    FE -->|approve · edit · reject| WFEngine
+    FE -->|agent query| ReactAgent
+    FE -->|OAuth popup| GAuth["🔐 Google OAuth 2.0"]
+    GAuth -->|tokens| DB
 
-    FE --> Planner[LLM Planner\nNL → WorkflowDefinition]
-    FE --> ReactAgent[ReAct Agent\nLangGraph]
-    FE --> GAuth[Google OAuth 2.0]
+    subgraph Backend["⚙️ FastAPI Backend  (port 8000)"]
+        direction TB
+        Planner["🧠 LLM Planner\nNL → WorkflowDefinition JSON"]
+        WFEngine["📋 Workflow Engine\nCRUD · versioning · diff"]
+        Scheduler["⏰ APScheduler\ncron per workflow"]
+        ExecEngine["⚡ Execution Engine\nstep runner · resolve refs\nHITL · 4-layer failure recovery"]
+        FailAgent["🔧 Failure Recovery Agent\nLangGraph · inspect · patch params"]
+        ReactAgent["🤖 ReAct Agent\nLangGraph · free-form tool use"]
+        AidenChat["💬 Aiden Chat\nmulti-turn · memory · tools"]
+        Adapters["🔌 Integration Adapters\nGmail · Slack · Sheets · AI · Generic"]
+        CredStore["🔑 Credential Store\nDB-first · .env fallback"]
 
-    Planner --> WFEngine[Workflow Engine\nCRUD · versioning · diff]
-    WFEngine --> Scheduler[APScheduler\ncron per workflow]
-    WFEngine --> ExecEngine[Execution Engine\nstep runner · 4-layer recovery]
-    Scheduler --> ExecEngine
+        Planner --> WFEngine
+        WFEngine --> Scheduler
+        WFEngine -->|on approve| ExecEngine
+        Scheduler -->|fires| ExecEngine
+        ExecEngine -->|step fails| FailAgent
+        ExecEngine -->|dispatch step| Adapters
+        FailAgent --> Adapters
+        ReactAgent --> Adapters
+        Adapters --> CredStore
+    end
 
-    ExecEngine --> Adapters[Integration Adapters\nGmail · Slack · Sheets · AI · Generic]
-    ExecEngine --> FailAgent[Failure Recovery Agent\nLangGraph · inspect · patch · retry]
-    FailAgent --> Adapters
-    ReactAgent --> Adapters
-
-    Adapters --> GmailAPI[Gmail API]
-    Adapters --> SheetsAPI[Sheets API]
-    Adapters --> SlackAPI[Slack API]
-    Adapters --> CredStore[Credential Store\nDB-first · .env fallback]
-
-    WFEngine --> DB[(SQLite)]
+    WFEngine --> DB
     ExecEngine --> DB
     CredStore --> DB
-    GAuth --> DB
-    AidenChat[Aiden Chat\nmulti-turn · memory · tools] --> DB
+    AidenChat --> DB
+    DB[("🗄️ SQLite\nWorkflows · Executions\nVersions · Credentials")]
 
-    Planner --> LLM[LLM Factory\nOpenRouter · Groq · Anthropic]
+    Adapters --> GmailAPI["📧 Gmail API"]
+    Adapters --> SheetsAPI["📊 Sheets API"]
+    Adapters --> SlackAPI["💬 Slack API"]
+
+    Planner --> LLM["✨ LLM Providers\nOpenRouter · Groq · Anthropic"]
     ExecEngine --> LLM
     FailAgent --> LLM
     ReactAgent --> LLM

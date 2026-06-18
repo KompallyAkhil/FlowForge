@@ -6,25 +6,12 @@ import type { IntegrationStatus } from "@/lib/types"
 import { Spinner } from "@/components/ui/spinner"
 import * as api from "@/lib/api"
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
-
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
 function CheckIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 6 9 17 4 12"/>
-    </svg>
-  )
-}
-
-function GoogleLogo() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24">
-      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
     </svg>
   )
 }
@@ -83,8 +70,16 @@ interface IntegrationSetupProps {
 }
 
 export function IntegrationSetup({ onComplete }: IntegrationSetupProps) {
-  const [statuses, setStatuses]       = useState<IntegrationStatus[]>([])
-  const [loading, setLoading]         = useState(true)
+  const [statuses, setStatuses]             = useState<IntegrationStatus[]>([])
+  const [loading, setLoading]               = useState(true)
+
+  const [googleClientId, setGoogleClientId]         = useState("")
+  const [googleClientSecret, setGoogleClientSecret] = useState("")
+  const [googleRefreshToken, setGoogleRefreshToken] = useState("")
+  const [savingGoogle, setSavingGoogle]             = useState(false)
+  const [googleError, setGoogleError]               = useState("")
+  const [savingEnv, setSavingEnv]                   = useState(false)
+
   const [slackToken, setSlackToken]   = useState("")
   const [savingSlack, setSavingSlack] = useState(false)
   const [slackError, setSlackError]   = useState("")
@@ -99,16 +94,7 @@ export function IntegrationSetup({ onComplete }: IntegrationSetupProps) {
     }
   }, [])
 
-  useEffect(() => {
-    fetchStatus()
-    const onMessage = (e: MessageEvent) => {
-      if (e.data?.type === "integration_connected" && e.data?.integration === "google") {
-        fetchStatus()
-      }
-    }
-    window.addEventListener("message", onMessage)
-    return () => window.removeEventListener("message", onMessage)
-  }, [fetchStatus])
+  useEffect(() => { fetchStatus() }, [fetchStatus])
 
   const gmail  = statuses.find(s => s.integration === "gmail")
   const sheets = statuses.find(s => s.integration === "sheets")
@@ -118,19 +104,34 @@ export function IntegrationSetup({ onComplete }: IntegrationSetupProps) {
   const allConnected    = googleConnected && !!slack?.connected
   const connectedCount  = statuses.filter(s => s.connected).length
 
-  const connectGoogle = () => {
-    const popup = window.open(
-      `${BASE}/api/integrations/google/connect`,
-      "google-oauth",
-      "width=520,height=640,left=400,top=120,resizable=yes,scrollbars=yes",
-    )
-    if (!popup) return
-    const timer = setInterval(() => {
-      if (popup.closed) {
-        clearInterval(timer)
-        fetchStatus()
-      }
-    }, 800)
+  const saveGoogle = async () => {
+    if (!googleClientId.trim() || !googleClientSecret.trim() || !googleRefreshToken.trim()) return
+    setSavingGoogle(true); setGoogleError("")
+    try {
+      await api.saveGoogleCredentials(
+        googleClientId.trim(),
+        googleClientSecret.trim(),
+        googleRefreshToken.trim(),
+      )
+      setGoogleClientId(""); setGoogleClientSecret(""); setGoogleRefreshToken("")
+      await fetchStatus()
+    } catch (e) {
+      setGoogleError(String(e).replace(/^Error:\s*/, ""))
+    } finally {
+      setSavingGoogle(false)
+    }
+  }
+
+  const useEnv = async () => {
+    setSavingEnv(true); setGoogleError(""); setSlackError("")
+    try {
+      await api.useAllEnv()
+      await fetchStatus()
+    } catch (e) {
+      setGoogleError(String(e).replace(/^Error:\s*/, ""))
+    } finally {
+      setSavingEnv(false)
+    }
   }
 
   const saveSlack = async () => {
@@ -194,16 +195,64 @@ export function IntegrationSetup({ onComplete }: IntegrationSetupProps) {
             connected={!!gmail?.connected}
             connectedLabel="Connected"
           >
-            <button
-              onClick={connectGoogle}
-              className="inline-flex items-center gap-2.5 bg-white border border-zinc-200 rounded-lg px-4 py-2 cursor-pointer text-[13px] font-semibold text-zinc-700 shadow-sm hover:shadow-md transition-all duration-150 hover:-translate-y-px"
-            >
-              <GoogleLogo />
-              Sign in with Google
-            </button>
-            <p className="text-[11.5px] text-subtle mt-2">
-              Also connects Google Sheets automatically (shared OAuth).
-            </p>
+            <div className="flex flex-col gap-2.5">
+              <p className="text-[12.5px] text-muted">
+                Paste your Google API credentials below. Also connects Google Sheets automatically.
+              </p>
+              {(["Client ID", "Client Secret", "Refresh Token"] as const).map((label) => {
+                const valueMap = {
+                  "Client ID":     googleClientId,
+                  "Client Secret": googleClientSecret,
+                  "Refresh Token": googleRefreshToken,
+                }
+                const setterMap = {
+                  "Client ID":     setGoogleClientId,
+                  "Client Secret": setGoogleClientSecret,
+                  "Refresh Token": setGoogleRefreshToken,
+                }
+                return (
+                  <input
+                    key={label}
+                    value={valueMap[label]}
+                    onChange={e => { setterMap[label](e.target.value); setGoogleError("") }}
+                    onKeyDown={e => e.key === "Enter" && saveGoogle()}
+                    placeholder={label}
+                    className="glass-input w-full px-3 py-2 text-[12.5px] font-mono"
+                  />
+                )
+              })}
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={saveGoogle}
+                  disabled={savingGoogle || !googleClientId.trim() || !googleClientSecret.trim() || !googleRefreshToken.trim()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12.5px] font-semibold text-white border-0 transition-all duration-150"
+                  style={{
+                    background: "#ea4335",
+                    cursor: savingGoogle || !googleClientId.trim() || !googleClientSecret.trim() || !googleRefreshToken.trim() ? "not-allowed" : "pointer",
+                    opacity: savingGoogle || !googleClientId.trim() || !googleClientSecret.trim() || !googleRefreshToken.trim() ? 0.45 : 1,
+                  }}
+                >
+                  {savingGoogle ? <><Spinner size={11} /> Saving…</> : "Save"}
+                </button>
+
+                <div style={{ width: "1px", height: "16px", background: "rgba(255,255,255,0.1)" }} />
+
+                <button
+                  onClick={useEnv}
+                  disabled={savingEnv}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium border-0 transition-all duration-150"
+                  style={{
+                    background: "rgba(255,255,255,0.05)",
+                    color: savingEnv ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.55)",
+                    cursor: savingEnv ? "not-allowed" : "pointer",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  {savingEnv ? <><Spinner size={10} /> Loading…</> : "Use backend .env"}
+                </button>
+              </div>
+              {googleError && <p className="text-[12px] text-danger">{googleError}</p>}
+            </div>
           </IntRow>
 
           {/* Google Sheets */}
@@ -229,21 +278,20 @@ export function IntegrationSetup({ onComplete }: IntegrationSetupProps) {
           >
             <div className="flex flex-col gap-2.5">
               <p className="text-[12.5px] text-muted">
-                Create a Slack app, install it to your workspace, then paste your
-                Bot Token (<code className="font-mono text-accent-l text-[11px]">xoxb-…</code>) below.
+                Paste your Slack bot token below, or load it from backend .env.
               </p>
-              <div className="flex gap-2">
-                <input
-                  value={slackToken}
-                  onChange={e => { setSlackToken(e.target.value); setSlackError("") }}
-                  onKeyDown={e => e.key === "Enter" && saveSlack()}
-                  placeholder="xoxb-your-bot-token"
-                  className="glass-input flex-1 px-3 py-2 text-[12.5px] font-mono"
-                />
+              <input
+                value={slackToken}
+                onChange={e => { setSlackToken(e.target.value); setSlackError("") }}
+                onKeyDown={e => e.key === "Enter" && saveSlack()}
+                placeholder="xoxb-your-bot-token"
+                className="glass-input w-full px-3 py-2 text-[12.5px] font-mono"
+              />
+              <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={saveSlack}
                   disabled={savingSlack || !slackToken.trim()}
-                  className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12.5px] font-semibold text-white border-0 transition-all duration-150 whitespace-nowrap"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12.5px] font-semibold text-white border-0 transition-all duration-150"
                   style={{
                     background: "#7b4eb8",
                     cursor: savingSlack || !slackToken.trim() ? "not-allowed" : "pointer",
@@ -251,6 +299,22 @@ export function IntegrationSetup({ onComplete }: IntegrationSetupProps) {
                   }}
                 >
                   {savingSlack ? <><Spinner size={11} /> Saving…</> : "Save"}
+                </button>
+
+                <div style={{ width: "1px", height: "16px", background: "rgba(255,255,255,0.1)" }} />
+
+                <button
+                  onClick={useEnv}
+                  disabled={savingEnv}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium border-0 transition-all duration-150"
+                  style={{
+                    background: "rgba(255,255,255,0.05)",
+                    color: savingEnv ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.55)",
+                    cursor: savingEnv ? "not-allowed" : "pointer",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  {savingEnv ? <><Spinner size={10} /> Loading…</> : "Use backend .env"}
                 </button>
               </div>
               {slackError && (

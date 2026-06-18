@@ -152,6 +152,14 @@ class BaseIntegration(ABC):
         """
         return []
 
+    def create_resource(self, resource_type: str, resource_name: str, extra: dict) -> None:
+        """
+        Called by the execution engine when the user answers "create" to a HumanInputRequired prompt.
+        Override in subclasses to handle integration-specific resource creation
+        (e.g. create a Slack channel, add a Sheets tab).
+        Default: no-op — execution resumes and the step is retried as-is.
+        """
+
     def get_planner_spec(self) -> dict | None:
         """
         Return a structured spec used to build the workflow planner's system prompt dynamically.

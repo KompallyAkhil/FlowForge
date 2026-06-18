@@ -153,8 +153,6 @@ function Sidebar({
 
 // ─── Bottom input bar ─────────────────────────────────────────────────────────
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
-
 interface BottomInputBarProps {
   query: string
   planning: boolean
@@ -169,16 +167,18 @@ interface BottomInputBarProps {
 function BottomInputBar({
   query, planning, planError, integrationStatuses, onQueryChange, onPlan, onExampleClick, onRefreshStatuses,
 }: BottomInputBarProps) {
-  const [showConnectors, setShowConnectors] = useState(false)
-  const [slackToken, setSlackToken]         = useState("")
-  const [slackError, setSlackError]         = useState("")
-  const [savingSlack, setSavingSlack]       = useState(false)
-  const [envAccepted, setEnvAccepted]       = useState(() => {
-    try { return localStorage.getItem("ff_env_accepted") === "1" } catch { return false }
-  })
+  const [showConnectors, setShowConnectors]         = useState(false)
+  const [googleClientId, setGoogleClientId]         = useState("")
+  const [googleClientSecret, setGoogleClientSecret] = useState("")
+  const [googleRefreshToken, setGoogleRefreshToken] = useState("")
+  const [savingGoogle, setSavingGoogle]             = useState(false)
+  const [googleError, setGoogleError]               = useState("")
+  const [savingEnv, setSavingEnv]                   = useState(false)
+  const [slackToken, setSlackToken]                 = useState("")
+  const [slackError, setSlackError]                 = useState("")
+  const [savingSlack, setSavingSlack]               = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
 
-  // Close popup on outside click
   useEffect(() => {
     function handleOutsideClick(e: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
@@ -189,27 +189,30 @@ function BottomInputBar({
     return () => document.removeEventListener("mousedown", handleOutsideClick)
   }, [showConnectors])
 
-  // Refresh after Google OAuth popup posts back
-  useEffect(() => {
-    function onMessage(e: MessageEvent) {
-      if (e.data?.type === "integration_connected" && e.data?.integration === "google") {
-        onRefreshStatuses()
-      }
+  async function saveGoogle() {
+    if (!googleClientId.trim() || !googleClientSecret.trim() || !googleRefreshToken.trim()) return
+    setSavingGoogle(true); setGoogleError("")
+    try {
+      await api.saveGoogleCredentials(googleClientId.trim(), googleClientSecret.trim(), googleRefreshToken.trim())
+      setGoogleClientId(""); setGoogleClientSecret(""); setGoogleRefreshToken("")
+      onRefreshStatuses()
+    } catch (e) {
+      setGoogleError(String(e).replace(/^Error:\s*/, ""))
+    } finally {
+      setSavingGoogle(false)
     }
-    window.addEventListener("message", onMessage)
-    return () => window.removeEventListener("message", onMessage)
-  }, [onRefreshStatuses])
+  }
 
-  function connectGoogle() {
-    const popup = window.open(
-      `${BASE}/api/integrations/google/connect`,
-      "google-oauth",
-      "width=520,height=640,left=400,top=120,resizable=yes,scrollbars=yes",
-    )
-    if (!popup) return
-    const timer = setInterval(() => {
-      if (popup.closed) { clearInterval(timer); onRefreshStatuses() }
-    }, 800)
+  async function useEnv() {
+    setSavingEnv(true); setGoogleError(""); setSlackError("")
+    try {
+      await api.useAllEnv()
+      onRefreshStatuses()
+    } catch (e) {
+      setGoogleError(String(e).replace(/^Error:\s*/, ""))
+    } finally {
+      setSavingEnv(false)
+    }
   }
 
   async function saveSlack() {
@@ -231,8 +234,7 @@ function BottomInputBar({
   const slackConnected  = integrationStatuses.find(s => s.integration === "slack")?.connected  ?? false
   const googleConnected = gmailConnected && sheetsConnected
   const anyDisconnected = !googleConnected || !slackConnected
-  // Only show badge once statuses have loaded, there are disconnected services, and user hasn't accepted env fallback
-  const showWarningBadge = integrationStatuses.length > 0 && anyDisconnected && !envAccepted
+  const showWarningBadge = integrationStatuses.length > 0 && anyDisconnected
 
   return (
     <div
@@ -272,44 +274,67 @@ function BottomInputBar({
                 {/* Google (Gmail + Sheets) */}
                 <div
                   className="rounded-lg px-3 py-2.5"
-                  style={{
-                    background: googleConnected
-                      ? "rgba(34,197,94,0.04)"
-                      : envAccepted ? "rgba(99,102,241,0.05)" : "rgba(255,255,255,0.02)",
-                  }}
+                  style={{ background: googleConnected ? "rgba(34,197,94,0.04)" : "rgba(255,255,255,0.02)" }}
                 >
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{
-                      background: googleConnected ? "#22c55e" : envAccepted ? "#818cf8" : "#3f3f46",
+                      background: googleConnected ? "#22c55e" : "#3f3f46",
                     }} />
-                    <span className="text-[13px] font-medium" style={{ color: googleConnected || envAccepted ? "#e4e4e7" : "#a1a1aa" }}>
+                    <span className="text-[13px] font-medium" style={{ color: googleConnected ? "#e4e4e7" : "#a1a1aa" }}>
                       Gmail &amp; Sheets
                     </span>
                     <span className="ml-auto text-[11px] font-medium" style={{
-                      color: googleConnected ? "#22c55e" : envAccepted ? "#818cf8" : "#52525b",
+                      color: googleConnected ? "#22c55e" : "#52525b",
                     }}>
-                      {googleConnected ? "Connected" : envAccepted ? "Env used" : "Not connected"}
+                      {googleConnected ? "Connected" : "Not connected"}
                     </span>
                   </div>
-                  {!googleConnected && !envAccepted && (
-                    <button
-                      onClick={connectGoogle}
-                      className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-zinc-800 border-0 cursor-pointer transition-all duration-150 hover:shadow-md"
-                      style={{ background: "#ffffff" }}
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24">
-                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                      </svg>
-                      Sign in with Google
-                    </button>
-                  )}
-                  {!googleConnected && envAccepted && (
-                    <p className="text-[11px]" style={{ color: "#6366f1" }}>
-                      Using backend .env credentials
-                    </p>
+                  {!googleConnected && (
+                    <div className="flex flex-col gap-1.5">
+                      {(["Client ID", "Client Secret", "Refresh Token"] as const).map((label) => {
+                        const vals = { "Client ID": googleClientId, "Client Secret": googleClientSecret, "Refresh Token": googleRefreshToken }
+                        const sets = { "Client ID": setGoogleClientId, "Client Secret": setGoogleClientSecret, "Refresh Token": setGoogleRefreshToken }
+                        return (
+                          <input
+                            key={label}
+                            value={vals[label]}
+                            onChange={e => { sets[label](e.target.value); setGoogleError("") }}
+                            onKeyDown={e => e.key === "Enter" && saveGoogle()}
+                            placeholder={label}
+                            className="w-full rounded-lg px-2.5 py-1.5 text-[11.5px] font-mono text-primary outline-none"
+                            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)" }}
+                          />
+                        )
+                      })}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={saveGoogle}
+                          disabled={savingGoogle || !googleClientId.trim() || !googleClientSecret.trim() || !googleRefreshToken.trim()}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white border-0 transition-all duration-150"
+                          style={{
+                            background: "#ea4335",
+                            cursor: savingGoogle || !googleClientId.trim() || !googleClientSecret.trim() || !googleRefreshToken.trim() ? "not-allowed" : "pointer",
+                            opacity: savingGoogle || !googleClientId.trim() || !googleClientSecret.trim() || !googleRefreshToken.trim() ? 0.45 : 1,
+                          }}
+                        >
+                          {savingGoogle ? <Spinner size={10} /> : "Save"}
+                        </button>
+                        <button
+                          onClick={useEnv}
+                          disabled={savingEnv}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-medium border-0 transition-all duration-150"
+                          style={{
+                            background: "rgba(255,255,255,0.05)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            color: savingEnv ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.5)",
+                            cursor: savingEnv ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {savingEnv ? <Spinner size={10} /> : "Use backend .env"}
+                        </button>
+                      </div>
+                      {googleError && <p className="text-[11px] text-danger">{googleError}</p>}
+                    </div>
                   )}
                 </div>
 
@@ -317,39 +342,37 @@ function BottomInputBar({
                 <div
                   className="rounded-lg px-3 py-2.5"
                   style={{
-                    background: slackConnected
-                      ? "rgba(34,197,94,0.04)"
-                      : envAccepted ? "rgba(99,102,241,0.05)" : "rgba(255,255,255,0.02)",
+                    background: slackConnected ? "rgba(34,197,94,0.04)" : "rgba(255,255,255,0.02)",
                   }}
                 >
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{
-                      background: slackConnected ? "#22c55e" : envAccepted ? "#818cf8" : "#3f3f46",
+                      background: slackConnected ? "#22c55e" : "#3f3f46",
                     }} />
-                    <span className="text-[13px] font-medium" style={{ color: slackConnected || envAccepted ? "#e4e4e7" : "#a1a1aa" }}>
+                    <span className="text-[13px] font-medium" style={{ color: slackConnected ? "#e4e4e7" : "#a1a1aa" }}>
                       Slack
                     </span>
                     <span className="ml-auto text-[11px] font-medium" style={{
-                      color: slackConnected ? "#22c55e" : envAccepted ? "#818cf8" : "#52525b",
+                      color: slackConnected ? "#22c55e" : "#52525b",
                     }}>
-                      {slackConnected ? "Connected" : envAccepted ? "Env used" : "Not connected"}
+                      {slackConnected ? "Connected" : "Not connected"}
                     </span>
                   </div>
-                  {!slackConnected && !envAccepted && (
+                  {!slackConnected && (
                     <div className="flex flex-col gap-1.5">
-                      <div className="flex gap-1.5">
-                        <input
-                          value={slackToken}
-                          onChange={e => { setSlackToken(e.target.value); setSlackError("") }}
-                          onKeyDown={e => e.key === "Enter" && saveSlack()}
-                          placeholder="xoxb-your-bot-token"
-                          className="flex-1 rounded-lg px-2.5 py-1.5 text-[11.5px] font-mono text-primary outline-none min-w-0"
-                          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)" }}
-                        />
+                      <input
+                        value={slackToken}
+                        onChange={e => { setSlackToken(e.target.value); setSlackError("") }}
+                        onKeyDown={e => e.key === "Enter" && saveSlack()}
+                        placeholder="xoxb-your-bot-token"
+                        className="w-full rounded-lg px-2.5 py-1.5 text-[11.5px] font-mono text-primary outline-none"
+                        style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)" }}
+                      />
+                      <div className="flex items-center gap-2">
                         <button
                           onClick={saveSlack}
                           disabled={savingSlack || !slackToken.trim()}
-                          className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white border-0 transition-all duration-150"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white border-0 transition-all duration-150"
                           style={{
                             background: "#7b4eb8",
                             cursor: savingSlack || !slackToken.trim() ? "not-allowed" : "pointer",
@@ -358,39 +381,26 @@ function BottomInputBar({
                         >
                           {savingSlack ? <Spinner size={10} /> : "Save"}
                         </button>
+                        <button
+                          onClick={useEnv}
+                          disabled={savingEnv}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-medium border-0 transition-all duration-150"
+                          style={{
+                            background: "rgba(255,255,255,0.05)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            color: savingEnv ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.5)",
+                            cursor: savingEnv ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {savingEnv ? <Spinner size={10} /> : "Use backend .env"}
+                        </button>
                       </div>
-                      {slackError && (
-                        <p className="text-[11px] text-danger">{slackError}</p>
-                      )}
+                      {slackError && <p className="text-[11px] text-danger">{slackError}</p>}
                     </div>
-                  )}
-                  {!slackConnected && envAccepted && (
-                    <p className="text-[11px]" style={{ color: "#6366f1" }}>
-                      Using backend .env credentials
-                    </p>
                   )}
                 </div>
               </div>
 
-              {/* Skip footer */}
-              {anyDisconnected && (
-                <div className="px-4 py-2.5 border-t border-white/[0.06] flex items-center justify-between">
-                  <span className="text-[11px] text-subtle">
-                    Backend env vars used as fallback
-                  </span>
-                  <button
-                    onClick={() => {
-                      setEnvAccepted(true)
-                      try { localStorage.setItem("ff_env_accepted", "1") } catch { /* ignore */ }
-                      setShowConnectors(false)
-                    }}
-                    className="text-[11.5px] font-medium hover:text-primary transition-colors border-0 bg-transparent cursor-pointer underline underline-offset-2"
-                    style={{ color: "#818cf8" }}
-                  >
-                    Yes, continue
-                  </button>
-                </div>
-              )}
             </div>
           )}
 

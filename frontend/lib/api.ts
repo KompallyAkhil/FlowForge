@@ -128,6 +128,19 @@ export const getWorkflowVersions = (id: string): Promise<WorkflowVersion[]> =>
 export const getIntegrationStatus = (): Promise<IntegrationStatus[]> =>
   req("/api/integrations/status")
 
+export const useAllEnv = (): Promise<{ saved: string[]; errors: string[] }> =>
+  req("/api/integrations/from-env", { method: "POST" })
+
+export const saveGoogleCredentials = (
+  client_id: string,
+  client_secret: string,
+  refresh_token: string,
+): Promise<{ integration: string; connected: boolean }> =>
+  req("/api/integrations/google", {
+    method: "POST",
+    body: JSON.stringify({ client_id, client_secret, refresh_token }),
+  })
+
 export const saveSlackToken = (bot_token: string): Promise<{ integration: string; connected: boolean }> =>
   req("/api/integrations/slack", {
     method: "POST",

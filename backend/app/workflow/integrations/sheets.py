@@ -252,6 +252,15 @@ class SheetsIntegration(BaseIntegration):
 
         return self._dispatch(action, corrected_params)
 
+    # ── HITL resource creation ────────────────────────────────────────────────
+
+    def create_resource(self, resource_type: str, resource_name: str, extra: dict) -> None:
+        if resource_type == "sheet_tab":
+            params: dict = {"name": resource_name}
+            if extra.get("spreadsheet_id"):
+                params["spreadsheet_id"] = extra["spreadsheet_id"]
+            self.execute("create_sheet", params)
+
     # ── Agent tools (exposed to the LangGraph agent) ─────────────────────────
 
     def get_agent_tools(self) -> list:

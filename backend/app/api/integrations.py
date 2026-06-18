@@ -39,6 +39,12 @@ class SlackTokenRequest(BaseModel):
     bot_token: str
 
 
+class GoogleCredentialsRequest(BaseModel):
+    client_id: str
+    client_secret: str
+    refresh_token: str
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _redirect_uri(s) -> str:
@@ -195,6 +201,98 @@ def google_callback(code: str):
 </script>
 </body>
 </html>""")
+
+
+@router.post("/google")
+def save_google_credentials(req: GoogleCredentialsRequest):
+    """Validate and save Google credentials (client_id, client_secret, refresh_token)."""
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request as GoogleRequest
+
+    creds = Credentials(
+        token=None,
+        refresh_token=req.refresh_token.strip(),
+        client_id=req.client_id.strip(),
+        client_secret=req.client_secret.strip(),
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=GOOGLE_SCOPES,
+    )
+    try:
+        creds.refresh(GoogleRequest())
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Google credentials validation failed: {exc}")
+
+    credential_data = {
+        "refresh_token": req.refresh_token.strip(),
+        "client_id": req.client_id.strip(),
+        "client_secret": req.client_secret.strip(),
+    }
+    for integration in ("gmail", "sheets"):
+        save_integration_credentials(integration, credential_data)
+
+    return {"integration": "google", "connected": True}
+
+
+@router.post("/from-env")
+def save_all_from_env():
+    """Read all credentials from backend .env and save to DB (Google + Slack)."""
+    s = get_settings()
+    saved = []
+    errors = []
+
+    # ── Google ────────────────────────────────────────────────────────────────
+    google_missing = [
+        name for name, val in [
+            ("GOOGLE_CLIENT_ID",     s.google_client_id),
+            ("GOOGLE_CLIENT_SECRET", s.google_client_secret),
+            ("GOOGLE_REFRESH_TOKEN", s.google_refresh_token),
+        ] if not val
+    ]
+    if google_missing:
+        errors.append(f"Google: missing {', '.join(google_missing)}")
+    else:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request as GoogleRequest
+        creds = Credentials(
+            token=None,
+            refresh_token=s.google_refresh_token,
+            client_id=s.google_client_id,
+            client_secret=s.google_client_secret,
+            token_uri="https://oauth2.googleapis.com/token",
+            scopes=GOOGLE_SCOPES,
+        )
+        try:
+            creds.refresh(GoogleRequest())
+            credential_data = {
+                "refresh_token": s.google_refresh_token,
+                "client_id":     s.google_client_id,
+                "client_secret": s.google_client_secret,
+            }
+            for integration in ("gmail", "sheets"):
+                save_integration_credentials(integration, credential_data)
+            saved.append("google")
+        except Exception as exc:
+            errors.append(f"Google: {exc}")
+
+    # ── Slack ─────────────────────────────────────────────────────────────────
+    if not s.slack_bot_token:
+        errors.append("Slack: missing SLACK_BOT_TOKEN")
+    else:
+        try:
+            from slack_sdk import WebClient
+            resp = WebClient(token=s.slack_bot_token).auth_test()
+            if not resp["ok"]:
+                errors.append("Slack: token rejected")
+            else:
+                save_integration_credentials("slack", {"bot_token": s.slack_bot_token})
+                saved.append("slack")
+        except Exception as exc:
+            errors.append(f"Slack: {exc}")
+
+    if errors and not saved:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
+
+    return {"saved": saved, "errors": errors}
 
 
 @router.post("/slack")

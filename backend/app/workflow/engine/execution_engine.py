@@ -592,17 +592,10 @@ def respond_to_execution(db: Session, execution_id: str, choice: str) -> Executi
     step_index       = pending.get("step_index", execution.current_step)
 
     if choice == "create":
-        # Create the missing resource so the retry can succeed
-        if integration_name == "slack" and resource_type == "channel":
-            IntegrationRegistry.get("slack").execute(
-                "create_channel", {"name": resource_name.lstrip("#")}
-            )
-        elif integration_name == "sheets" and resource_type == "sheet_tab":
-            params: dict = {"name": resource_name}
-            spreadsheet_id = pending.get("spreadsheet_id")
-            if spreadsheet_id:
-                params["spreadsheet_id"] = spreadsheet_id
-            IntegrationRegistry.get("sheets").execute("create_sheet", params)
+        # Delegate resource creation to the integration — no hardcoded names needed
+        IntegrationRegistry.get(integration_name).create_resource(
+            resource_type, resource_name, pending
+        )
 
         # Resume from the same step (resource now exists — it should succeed)
         execution.status = "pending"
