@@ -92,13 +92,12 @@ Persistence
 ```mermaid
 flowchart TB
     User(["👤 User"])
-    User --> FE["🖥️ Next.js Frontend\nCreate · Review · Execute · Done · Agent Chat"]
+    User -->|describe workflow| FE["🖥️ Next.js Frontend\nCreate · Review · Execute · Monitor · Chat"]
+    FE -->|output · results · logs| User
 
     FE -->|plan workflow| Planner
     FE -->|approve · edit · reject| WFEngine
     FE -->|agent query| ReactAgent
-    FE -->|OAuth popup| GAuth["🔐 Google OAuth 2.0"]
-    GAuth -->|tokens| DB
 
     subgraph Backend["⚙️ FastAPI Backend  (port 8000)"]
         direction TB
@@ -122,6 +121,11 @@ flowchart TB
         ReactAgent --> Adapters
         Adapters --> CredStore
     end
+
+    Planner -->|workflow plan| FE
+    ExecEngine -->|SSE stream · logs · HITL prompt| FE
+    AidenChat -->|chat reply| FE
+    ReactAgent -->|agent response| FE
 
     WFEngine --> DB
     ExecEngine --> DB
