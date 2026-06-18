@@ -111,6 +111,7 @@ export interface ExecutionLog {
   output_data: Record<string, unknown> | null
   error: string | null
   retry_count: number
+  started_at: string | null
   created_at: string
   updated_at: string | null
 }

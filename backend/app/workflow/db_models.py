@@ -86,8 +86,9 @@ class Execution(Base):
     error = Column(Text, nullable=True)
     pending_input = Column(JSON, nullable=True)  # set when status=waiting_input; cleared on respond
 
-    workflow = relationship("Workflow", back_populates="executions")
-    logs = relationship("ExecutionLog", back_populates="execution", cascade="all, delete-orphan")
+    workflow      = relationship("Workflow", back_populates="executions")
+    logs          = relationship("ExecutionLog",        back_populates="execution", cascade="all, delete-orphan")
+    chat_messages = relationship("ExecutionChatMessage", back_populates="execution", cascade="all, delete-orphan")
 
 
 class WorkflowVersion(Base):
@@ -120,10 +121,24 @@ class ExecutionLog(Base):
     output_data = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
     retry_count = Column(Integer, default=0)
-    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
-    updated_at = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(UTC))
+    started_at  = Column(DateTime, nullable=True)                                      # when step began executing
+    created_at  = Column(DateTime, default=lambda: datetime.now(UTC))                 # when log was written (step end)
+    updated_at  = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(UTC))
 
     execution = relationship("Execution", back_populates="logs")
+
+
+class ExecutionChatMessage(Base):
+    """Persisted chat turn for the 'Ask about this run' panel."""
+    __tablename__ = "execution_chat_messages"
+
+    id           = Column(String,   primary_key=True, default=lambda: str(uuid.uuid4()))
+    execution_id = Column(String,   ForeignKey("executions.id"), nullable=False, index=True)
+    role         = Column(String,   nullable=False)   # "user" | "assistant"
+    content      = Column(Text,     nullable=False)
+    created_at   = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    execution = relationship("Execution", back_populates="chat_messages")
 
 
 class IntegrationCredential(Base):

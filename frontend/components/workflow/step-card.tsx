@@ -85,9 +85,9 @@ export function StepCard({ step, index, stepStatus, log, allStepLogs, onEdit, on
             <span className="text-[11px] text-info">{runningElapsed}</span>
           )}
 
-          {log && st !== "running" && calcDuration(log.created_at, log.updated_at ?? log.created_at) && (
+          {log && st !== "running" && calcDuration(log.started_at, log.created_at) && (
             <span className="text-[11px] text-muted">
-              {calcDuration(log.created_at, log.updated_at ?? log.created_at)}
+              {calcDuration(log.started_at, log.created_at)}
             </span>
           )}
 

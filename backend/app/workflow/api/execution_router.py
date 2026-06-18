@@ -203,6 +203,19 @@ def respond_to_execution(
     return updated
 
 
+@router.get("/{execution_id}/chat", response_model=list[ChatHistoryMessage])
+def get_execution_chat(execution_id: str, db: Session = Depends(get_db)):
+    """Return all stored chat messages for an execution, oldest first."""
+    from app.workflow.db_models import ExecutionChatMessage
+    rows = (
+        db.query(ExecutionChatMessage)
+        .filter(ExecutionChatMessage.execution_id == execution_id)
+        .order_by(ExecutionChatMessage.created_at)
+        .all()
+    )
+    return [ChatHistoryMessage(role=r.role, content=r.content) for r in rows]
+
+
 @router.post("/{execution_id}/chat", response_model=ExecutionChatResponse)
 async def chat_with_execution(
     execution_id: str,
@@ -317,5 +330,12 @@ async def chat_with_execution(
             messages=messages,
         )
         reply = resp.content[0].text or ""
+
+    # ── Persist both turns ────────────────────────────────────────────────────
+    from app.workflow.db_models import ExecutionChatMessage
+    import uuid as _uuid
+    db.add(ExecutionChatMessage(id=str(_uuid.uuid4()), execution_id=execution_id, role="user",      content=req.message))
+    db.add(ExecutionChatMessage(id=str(_uuid.uuid4()), execution_id=execution_id, role="assistant", content=reply))
+    db.commit()
 
     return ExecutionChatResponse(reply=reply)

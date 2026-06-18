@@ -76,8 +76,11 @@ def _migrate_schema() -> None:
         # executions table — pending_input added for human-in-the-loop pauses
         _add_column_if_missing(conn, "executions", "pending_input", "JSON")
         # execution_logs table
-        _add_column_if_missing(conn, "execution_logs", "updated_at",    "DATETIME")
+        _add_column_if_missing(conn, "execution_logs", "updated_at",  "DATETIME")
+        _add_column_if_missing(conn, "execution_logs", "started_at",  "DATETIME")
         conn.commit()
+    # execution_chat_messages is created by create_all() on first run;
+    # no ALTER needed since it's a brand-new table.
 
 
 def _add_column_if_missing(conn, table: str, column: str, col_def: str) -> None:

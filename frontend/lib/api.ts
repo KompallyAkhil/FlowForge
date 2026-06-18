@@ -151,6 +151,9 @@ export const disconnectIntegration = (name: string): Promise<{ disconnected: str
   req(`/api/integrations/${name}`, { method: "DELETE" })
 
 // Execution session chat
+export const getExecutionChat = (id: string): Promise<ExecutionChatMessage[]> =>
+  req(`/api/executions/${id}/chat`)
+
 export const chatWithExecution = (
   executionId: string,
   message: string,

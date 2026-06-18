@@ -175,7 +175,9 @@ class AIToolsIntegration(BaseIntegration):
             "use_case": "summarize, extract, transform any text",
             "output_keywords": [],
             "planner_notes": (
-                "ai.summarize produces a \"summary\" field. Reference it as ${step_N.summary}.\n"
+                "ai.summarize produces a \"summary\" field (plain text). Reference it as ${step_N.summary}.\n"
+                "  NEVER use ${step_N.items[0].field} on a summarize step — summarize returns a text paragraph, NOT an array.\n"
+                "  For Slack messages with top-N items, use ${step_N.summary} directly — the summary text contains all key points.\n"
                 "ai.extract produces the fields you list (e.g. amount, date). Reference them as ${step_N.amount}, ${step_N.date}.\n"
                 "When the source text contains MULTIPLE sections (e.g. from read_emails_batch combined_text), "
                 "ai.extract returns an array of objects — one per section — exposed as ${step_N.items}.\n"

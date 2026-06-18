@@ -526,7 +526,7 @@ function WorkflowsContent({
         <>
           <PageHeader
             title={wfView.workflow.name}
-            subtitle="Live execution · refreshing every 1.5s"
+            subtitle="Live execution"
           />
           <ExecutionView
             executionId={wfView.executionId}

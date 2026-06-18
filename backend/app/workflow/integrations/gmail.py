@@ -275,7 +275,7 @@ class GmailIntegration(BaseIntegration):
                 "    Debit notifications            → \"subject:debited OR subject:\\\"amount debited\\\" OR subject:\\\"payment sent\\\"\"\n"
                 "  Emails from a company/service    → \"from:company.com OR subject:companyname\" (use domain, not bare name)\n"
                 "  Transaction or payment emails    → \"from:domain.com (transaction OR payment OR receipt)\"\n"
-                "  Emails with a Gmail label        → \"label:labelname\" (only when user says \"label X\")\n"
+                "  Emails with a Gmail label        → \"label:labelname\" (ONLY when user explicitly says 'Gmail label X' — NEVER use label: for company/service names like Slice, Swiggy, Amazon)\n"
                 "  Unread emails                    → \"is:unread\"\n"
                 "  By subject keyword               → \"subject:keyword\"\n"
                 "  By exact sender address          → \"from:someone@domain.com\"\n"
@@ -297,7 +297,11 @@ class GmailIntegration(BaseIntegration):
                 "  5. When bank/service name is unknown but intent is clear, use subject keywords broadly:\n"
                 "     \"credited\" means money came IN → query: subject:credited OR subject:\\\"amount credited\\\" OR subject:\\\"payment received\\\"\n"
                 "     \"debited\" means money went OUT → query: subject:debited OR subject:\\\"amount debited\\\"\n"
-                "  6. Always cast a wide net with OR — prefer recall over precision for any alert or notification emails"
+                "  6. Always cast a wide net with OR — prefer recall over precision for any alert or notification emails\n"
+                "  7. For broad unread/recent searches use ONLY is:unread or newer_than:Nd — NEVER add category:primary;\n"
+                "     unread emails live in ALL tabs (Updates, Promotions, Primary). category:primary will silently drop most of them.\n"
+                "  8. Company/service names (Slice, Swiggy, Amazon, Zomato …) MUST use from: or subject: — NEVER label:.\n"
+                "     label: is for Gmail labels the user created themselves, not sender names."
             ),
             "chaining_examples": [
                 {
@@ -602,9 +606,14 @@ class GmailIntegration(BaseIntegration):
         query       = params.get("query", "")
         max_results = int(params.get("max_results", 10))
 
-        # Always restrict to the Primary tab unless the query already specifies
-        # a category, label, or a non-inbox mailbox (sent/drafts/spam/trash).
-        _non_primary_markers = ("category:", "label:", "in:sent", "in:drafts", "in:spam", "in:trash", "in:all")
+        # Restrict to Primary tab by default — but skip when the query already
+        # narrows by sender, unread status, or an explicit mailbox/category.
+        # Bank, service, and notification emails land in Updates/Promotions, not Primary.
+        _non_primary_markers = (
+            "category:", "label:", "in:sent", "in:drafts", "in:spam", "in:trash", "in:all",
+            "from:",       # sender-scoped → search all tabs
+            "is:unread",   # broad unread search → don't miss Updates/Promotions
+        )
         if not any(marker in query.lower() for marker in _non_primary_markers):
             query = f"category:primary {query}".strip()
 

@@ -36,7 +36,16 @@ export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBa
   const [input, setInput]         = useState("")
   const [sending, setSending]     = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
+  const [loadingChat, setLoadingChat] = useState(true)
   const bottomRef                 = useRef<HTMLDivElement>(null)
+
+  // Load persisted chat history on mount
+  useEffect(() => {
+    api.getExecutionChat(execution.id)
+      .then(msgs => setMessages(msgs))
+      .catch(() => {/* ignore — new execution has no history */})
+      .finally(() => setLoadingChat(false))
+  }, [execution.id])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -159,7 +168,11 @@ export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBa
           className="overflow-y-auto px-4 py-3 flex flex-col gap-2.5 transition-all duration-200"
           style={{ height: messages.length === 0 ? 72 : 300 }}
         >
-          {messages.length === 0 ? (
+          {loadingChat ? (
+            <div className="flex items-center justify-center h-full gap-2 text-subtle text-[12.5px]">
+              <Spinner size={11} /> Loading chat history…
+            </div>
+          ) : messages.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <span className="text-[12.5px] text-subtle text-center">
                 Ask anything — emails found, data written, errors, next steps…

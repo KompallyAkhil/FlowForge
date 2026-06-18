@@ -208,9 +208,13 @@ def _resolve_params(params: dict, step_outputs: dict[int, dict]) -> dict:
             return None
 
         if step_idx not in step_outputs:
-            return None
+            return None  # step hasn't run → leave ${...} so error reporter catches it
 
-        return _walk(step_outputs[step_idx], parts[1:])
+        result = _walk(step_outputs[step_idx], parts[1:])
+        # Step ran but the field path doesn't exist in its output (e.g. planner used
+        # items[0].action_item on a summarize step that only returns "summary").
+        # Resolve to "" so the execution continues rather than hard-failing.
+        return result if result is not None else ""
 
     def _walk(value, parts: list):
         """Follow a dotted path like ['emails[0]', 'id'] into value."""
@@ -421,6 +425,7 @@ def run_execution(db: Session, execution_id: str) -> Execution:
                 step_index=i,
                 step=step,
                 status="failed",
+                output_data=None,
                 input_data=step.params,
                 error=error_msg,
             )
@@ -694,6 +699,7 @@ def _execute_step_with_retry(
     last_error: str | None = None
 
     for attempt in range(MAX_RETRIES + 1):
+        step_started_at = datetime.now(UTC)
         try:
             integration = IntegrationRegistry.get(step.integration)
             output = integration.execute(step.action, params)
@@ -707,6 +713,7 @@ def _execute_step_with_retry(
                 input_data=params,
                 output_data=output,
                 retry_count=attempt,
+                started_at=step_started_at,
             )
             return {"success": True, "output": output}
 
@@ -731,6 +738,7 @@ def _execute_step_with_retry(
         output_data=None,
         error=last_error,
         retry_count=MAX_RETRIES,
+        started_at=step_started_at,
     )
     return {"success": False, "error": f"Step '{step.name}' failed after {MAX_RETRIES} retries: {last_error}"}
 
@@ -745,6 +753,7 @@ def _write_log(
     input_data: dict | None = None,
     error: str | None = None,
     retry_count: int = 0,
+    started_at: datetime | None = None,
 ) -> None:
     log = ExecutionLog(
         id=str(uuid.uuid4()),
@@ -758,6 +767,7 @@ def _write_log(
         output_data=output_data,
         error=error,
         retry_count=retry_count,
+        started_at=started_at,
     )
     db.add(log)
     db.commit()
