@@ -86,6 +86,134 @@ Persistence
                AgentRun · AgentStep · IntegrationCredential
 ```
 
+### System architecture
+
+```mermaid
+flowchart TD
+    subgraph Browser["Browser"]
+        User([User])
+    end
+
+    subgraph FE["Next.js Frontend  (port 3000)"]
+        Gate[Home\nIntegration Gating]
+        Setup[IntegrationSetup\nGmail · Sheets · Slack]
+        WfCreate[Create View\nNatural-language input]
+        WfReview[Review View\nInspect · Edit · Approve]
+        WfExec[Execution View\nLive polling 1.5 s]
+        WfDone[Done View\nSummary · Resume · Chat]
+        AgentUI[Agent Chat\n/agent page]
+        SideBar[Sidebar\nHistory · Versions · Schedule]
+    end
+
+    subgraph API["FastAPI Backend  (port 8000)"]
+        R_WF[Workflow Router\n/api/workflows]
+        R_EX[Execution Router\n/api/executions]
+        R_AG[Agent Router\n/api/agent/runs]
+        R_INT[Integrations Router\n/api/integrations]
+        R_CH[Chat Router\n/api/chat]
+    end
+
+    subgraph Core["Core Services"]
+        Planner["LLM Planner\nDynamic prompt from IntegrationRegistry\nParse + validate WorkflowDefinition"]
+        WFEng["Workflow Engine\nCRUD · Versioning · _compute_diff"]
+        ExEng["Execution Engine\nSequential step runner\n_resolve_params two-pass\n4-layer failure recovery"]
+        AIDen["Aiden Chat Service\nMulti-turn · Memory · Tools"]
+        Sched["APScheduler\nCron job per workflow\nRe-registers on startup"]
+        LLMFac["LLM Factory\nchat_complete\nget_langchain_llm\nRoutes to configured provider"]
+    end
+
+    subgraph Agents["LangGraph Agents"]
+        ReactAg["ReAct Agent\nagentic_runner.py\nFree-form tool use\nLLM → Tools loop"]
+        FailAg["Failure Recovery Agent\nfailure_agent.py\ninspect outputs · get defaults · retry\nLayer 4 of recovery"]
+        InlineAg["Inline Adapter Agent\nbase._run_recovery_agent\nPer-adapter mini-graph\nLayer 2 of recovery"]
+    end
+
+    subgraph IntReg["Integration Adapters  (IntegrationRegistry)"]
+        Gmail[Gmail\nsearch_emails · read_emails_batch · send_email]
+        Slack[Slack\nsend_message · read_messages · list_channels]
+        Sheets[Sheets\nread_sheet · write_sheet · append_rows]
+        AITools[AI Tools\nsummarize · extract · transform]
+        Generic[Generic\nhttp · webhook · manual]
+        CredStore["Credential Store\ncredential_store.py\nDB-first lookup · fallback .env"]
+    end
+
+    subgraph DB["SQLite  workflow.db"]
+        T_WF[(Workflow\nWorkflowVersion)]
+        T_EX[(Execution\nExecutionLog)]
+        T_IC[(IntegrationCredential)]
+        T_AG[(AgentRun\nAgentStep)]
+    end
+
+    subgraph ExtSvcs["External Services"]
+        GAuth[Google OAuth 2.0]
+        GmailAPI[Gmail API v1]
+        SheetsAPI[Sheets API v4]
+        SlackAPI[Slack Web API]
+        LLMProv[LLM Providers\nOpenRouter · Groq · Anthropic]
+    end
+
+    %% User → Frontend
+    User --> Gate
+    Gate -->|all connected| WfCreate
+    Gate -->|any missing| Setup
+    Setup -->|Google OAuth popup| R_INT
+    Setup -->|POST Slack token| R_INT
+
+    %% WfView state machine transitions
+    WfCreate -->|planWorkflow POST /api/workflows| R_WF
+    WfReview -->|approve and run| R_WF
+    WfReview -->|reject · replan · edit steps| R_WF
+    WfExec -->|poll status and logs| R_EX
+    WfDone -->|chat about results| R_EX
+    AgentUI -->|start run · poll result| R_AG
+    SideBar -->|versions · history · schedule| R_WF
+
+    %% Routers → Core Services
+    R_WF --> Planner
+    R_WF --> WFEng
+    R_WF --> Sched
+    R_EX --> ExEng
+    R_AG --> ReactAg
+    R_CH --> AIDen
+
+    %% Core Service connections
+    Planner -->|WorkflowDefinition| WFEng
+    WFEng --> T_WF
+    Sched -->|cron fire → create and run| ExEng
+    ExEng --> T_EX
+    ExEng -->|dispatch each step| IntReg
+    ExEng -->|Layer 4 after all retries fail| FailAg
+
+    %% Agents ↔ Integration layer
+    FailAg -->|try_execute_step| IntReg
+    ReactAg --> IntReg
+    ReactAg --> T_AG
+    IntReg -->|dispatch error → resource lookup| InlineAg
+
+    %% All LLM consumers → LLM Factory
+    Planner --> LLMFac
+    AIDen --> LLMFac
+    AITools --> LLMFac
+    ReactAg --> LLMFac
+    FailAg --> LLMFac
+    InlineAg --> LLMFac
+
+    %% Credentials
+    IntReg --> CredStore
+    CredStore --> T_IC
+    R_INT --> T_IC
+
+    %% External service calls
+    R_INT --> GAuth
+    GAuth -->|tokens saved to DB| T_IC
+    Gmail --> GmailAPI
+    Sheets --> SheetsAPI
+    Slack --> SlackAPI
+    LLMFac --> LLMProv
+```
+
+---
+
 ### Workflow lifecycle
 
 ```mermaid
