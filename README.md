@@ -91,44 +91,34 @@ Persistence
 
 ```mermaid
 flowchart TD
-    User([User])
+    User([User]) --> FE[Next.js Frontend\nCreate · Review · Execute · Agent Chat]
 
-    User -- describe automation --> CreateView[Create View\nnatural-language input]
-    User -- review steps --> ReviewView[Review View\ninspect · edit · approve]
-    User -- watch progress --> ExecView[Execution View\nlive polling every 1.5 s]
-    User -- free-form queries --> AgentUI[Agent Chat UI\n/agent page]
+    FE -- plan workflow --> Planner[LLM Planner\nnatural language → WorkflowDefinition JSON]
+    FE -- approve · edit steps --> WFEngine[Workflow Engine\nCRUD · versioning · diff]
+    FE -- agent query --> ReactAgent[ReAct Agent\nLangGraph · free-form tool use]
+    FE -- Google OAuth popup --> GAuth[Google OAuth 2.0]
 
-    CreateView -- POST /api/workflows --> Planner[LLM Planner\nbuilds WorkflowDefinition from prompt]
-    ReviewView -- POST /approve --> ExecEngine
-    AgentUI -- POST /api/agent/runs --> ReactAgent[LangGraph ReAct Agent\nfree-form tool use · dynamic tool calls]
+    Planner -- draft workflow --> WFEngine
+    WFEngine -- on approve --> ExecEngine[Execution Engine\nstep runner · resolve refs · 4-layer recovery]
+    WFEngine -- register cron --> Scheduler[APScheduler\ncron per workflow]
+    Scheduler -- fires --> ExecEngine
+    WFEngine --> DB[(SQLite\nWorkflows · Executions · Versions · Credentials)]
+    ExecEngine --> DB
+    GAuth -- user tokens saved --> DB
 
-    Planner -- draft workflow --> WFEngine[Workflow Engine\nCRUD · versioning · diff]
-    WFEngine -- saves --> DB[(SQLite\nWorkflow · Version · Execution · Credential)]
-
-    ReviewView -- edit steps --> WFEngine
-    WFEngine -- on approve --> ExecEngine[Execution Engine\nsequential step runner · resolve refs · retry]
-
-    ExecEngine -- runs each step --> Adapters[Integration Adapters\nGmail · Slack · Sheets · AI · Generic]
-    ExecEngine -- logs results --> DB
-    ExecEngine -- step fails after retries --> FailureAgent[Failure Recovery Agent\nreads outputs · patches params · retries]
-    FailureAgent --> Adapters
-
-    Adapters -- DB-first credential lookup --> CredStore[Credential Store\nOAuth tokens · Slack bot token]
-    CredStore --> DB
-
-    Adapters -- emails --> GmailAPI[Gmail API]
-    Adapters -- spreadsheets --> SheetsAPI[Sheets API]
-    Adapters -- messages --> SlackAPI[Slack API]
-
-    Scheduler[APScheduler\ncron per workflow] -- fires on schedule --> ExecEngine
-
+    ExecEngine -- dispatch step --> Adapters[Integration Adapters\nGmail · Slack · Sheets · AI · Generic]
+    ExecEngine -- step fails → repair & retry --> FailAgent[Failure Recovery Agent\nLangGraph · inspects outputs · patches params]
+    FailAgent --> Adapters
     ReactAgent --> Adapters
+    AidenChat[Aiden Chat\nmulti-turn · memory · tools] --> DB
 
-    ExecView -- GET /api/executions --> DB
+    Adapters -- token lookup --> CredStore[Credential Store\nDB-first · .env fallback]
+    CredStore --> DB
+    Adapters --> GmailAPI[Gmail API]
+    Adapters --> SheetsAPI[Sheets API]
+    Adapters --> SlackAPI[Slack API]
 
-    AidenChat[Aiden Chat Assistant\nmulti-turn · memory · tools] -- session history --> DB
-
-    Planner & ExecEngine & ReactAgent & FailureAgent & AidenChat & Adapters -- LLM calls --> LLM[LLM Providers\nOpenRouter · Groq · Anthropic]
+    Planner & ExecEngine & FailAgent & ReactAgent & AidenChat & Adapters -- LLM calls --> LLM[LLM Factory\nOpenRouter · Groq · Anthropic]
 ```
 
 ---
