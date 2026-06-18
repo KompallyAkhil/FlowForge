@@ -81,11 +81,11 @@ Never invent or infer details that are not explicitly present in the text."""
 # Maps the "style" param to an instruction sent to the LLM.
 # Add new styles here; the default is used when the style key is not found.
 SUMMARIZE_STYLE_INSTRUCTIONS: dict[str, str] = {
-    "bullet_points": "Summarize in 3-5 clear bullet points, each starting with a dash.",
-    "paragraph":     "Summarize in 2-3 concise sentences as a single paragraph.",
+    "bullet_points": "Summarize in with clear bullet points, each starting with a dash.",
+    "paragraph":     "Summarize in concise sentences as a single paragraph.",
     "brief":         "Summarize in exactly one sentence.",
 }
-SUMMARIZE_STYLE_DEFAULT = "Summarize in 3-5 clear bullet points, each starting with a dash."
+SUMMARIZE_STYLE_DEFAULT = "Summarize in  clear bullet points, each starting with a dash."
 
 # {context}          — optional "Subject: ...\nFrom: ...\n" block (may be empty string)
 # {text}             — content to summarize (pre-truncated by caller)

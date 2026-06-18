@@ -164,6 +164,7 @@ class SheetsIntegration(BaseIntegration):
             "read_all_sheets":      self._read_all_sheets,
             "update_cell":          self._update_cell,
             "create_sheet":         self._create_sheet,
+            "create_spreadsheet":   self._create_spreadsheet,
             "search_rows":          self._search_rows,
             "get_spreadsheet_info": self._get_spreadsheet_info,
         }
@@ -286,7 +287,14 @@ class SheetsIntegration(BaseIntegration):
             """List all sheet tabs in the configured spreadsheet. Use this to find the correct tab name when the user mentions a named section."""
             return _self.execute("get_spreadsheet_info", {})
 
-        return [sheets_append_row, sheets_read_rows, sheets_update_cell, sheets_search_rows, sheets_get_spreadsheet_info]
+        @tool
+        def sheets_create_spreadsheet(
+            title: Ann[str, "Title for the new Google Spreadsheet file"],
+        ) -> dict:
+            """Create a brand-new Google Spreadsheet file. Returns spreadsheet_id and url. Use when the user asks to create a new sheet/spreadsheet. After calling this, pass the returned spreadsheet_id to sheets_append_row for any writes."""
+            return _self.execute("create_spreadsheet", {"title": title})
+
+        return [sheets_append_row, sheets_read_rows, sheets_update_cell, sheets_search_rows, sheets_get_spreadsheet_info, sheets_create_spreadsheet]
 
     def get_planner_spec(self) -> dict:
         return {
@@ -300,7 +308,12 @@ class SheetsIntegration(BaseIntegration):
                 "Use read_all_sheets when the user asks about the spreadsheet as a whole — "
                 "phrases like \"what does the sheet say\", \"summarize the spreadsheet\", \"what's in my sheets\", "
                 "\"tell me about all my sheets\". This reads every tab and returns combined_text.\n"
-                "Use read_rows only when the user names a specific tab."
+                "Use read_rows only when the user names a specific tab.\n"
+                "CRITICAL — create_spreadsheet chaining: when the user asks to create a new spreadsheet (phrases like "
+                "'create a new sheet', 'make a spreadsheet named X', 'new Google Sheet'), use create_spreadsheet as "
+                "step 1. Every subsequent Sheets step (append_row, write_sheet, etc.) MUST include "
+                "\"spreadsheet_id\": \"${step_1.spreadsheet_id}\" in its params. Omitting this causes the row to "
+                "land in the default .env spreadsheet instead of the newly created one."
             ),
             "chaining_examples": [
                 {
@@ -329,10 +342,20 @@ class SheetsIntegration(BaseIntegration):
                     ],
                     "note": "use read_rows only when user names a specific tab",
                 },
+                {
+                    "description": "Create a new spreadsheet and write a row into it",
+                    "steps": [
+                        {"integration": "sheets", "action": "create_spreadsheet", "params": {"title": "Automation"}},
+                        {"integration": "sheets", "action": "append_row",         "params": {"spreadsheet_id": "${step_1.spreadsheet_id}", "sheet": "Sheet1", "values": ["2026-06-17", 77.6]}},
+                    ],
+                    "note": "CRITICAL: always pass spreadsheet_id: ${step_1.spreadsheet_id} to every Sheets step that follows create_spreadsheet — never omit it or the row will write to the default .env sheet instead",
+                },
             ],
             "agent_strategy": (
                 "- Sheets output: sheets_append_row — only when explicitly requested\n"
-                "- NEVER include 'spreadsheet_id' or 'range' in any Sheets step params — both are auto-resolved"
+                "- NEVER include 'spreadsheet_id' in params UNLESS a previous step used create_spreadsheet — "
+                "in that case you MUST pass spreadsheet_id: ${step_N.spreadsheet_id} to all subsequent Sheets steps\n"
+                "- NEVER include 'range' in any Sheets step params — it is auto-resolved"
             ),
             "actions": [
                 {
@@ -360,8 +383,9 @@ class SheetsIntegration(BaseIntegration):
                         "  For invoice data: values: [${step_2.vendor}, ${step_2.invoice_number}, "
                         "${step_2.amount}, ${step_2.currency}, ${step_2.due_date}]\n"
                         "  NEVER pass a whole dict or nested object as a value.\n"
-                        "  NEVER include 'spreadsheet_id' in params — it is auto-configured from the environment.\n"
-                        "  NEVER include 'range' in params — the engine computes the range from 'sheet'."
+                        "  NEVER include 'range' in params — the engine computes the range from 'sheet'.\n"
+                        "  'spreadsheet_id': omit when using the default configured sheet. "
+                        "MUST include as ${step_N.spreadsheet_id} when a previous step used create_spreadsheet."
                     ),
                 },
                 {"name": "append_rows", "params": {"sheet": "Sheet1", "rows": "${step_N.field}", "fields": ["name"]}, "output": None},
@@ -399,6 +423,22 @@ class SheetsIntegration(BaseIntegration):
                 {"name": "update_cell",          "params": {"sheet": "Sheet1", "cell": "A1", "value": "new value"},                  "output": None},
                 {"name": "search_rows",          "params": {"sheet": "Sheet1", "query": "search term"},                              "output": None},
                 {"name": "create_sheet",         "params": {"name": "new-tab-name"},                                                  "output": None},
+                {
+                    "name": "create_spreadsheet",
+                    "params": {"title": "My New Spreadsheet"},
+                    "output": {
+                        "status":         "created",
+                        "spreadsheet_id": "1BxiM...",
+                        "title":          "My New Spreadsheet",
+                        "url":            "https://docs.google.com/spreadsheets/d/1BxiM.../edit",
+                    },
+                    "output_note": (
+                        "→ Creates a brand-new Google Spreadsheet file — no SHEETS_SPREADSHEET_ID needed.\n"
+                        "  Returns spreadsheet_id which downstream steps can reference via ${step_N.spreadsheet_id}.\n"
+                        "  Use when the user says 'create a new sheet', 'make a spreadsheet', or 'save to a new file'.\n"
+                        "  Do NOT use if a spreadsheet already exists — use append_row / write_sheet instead."
+                    ),
+                },
             ],
         }
 
@@ -782,6 +822,22 @@ class SheetsIntegration(BaseIntegration):
             "spreadsheet_id": spreadsheet_id,
             "updated_range":  result.get("updatedRange", range_expr),
             "new_value":      value,
+        }
+
+    def _create_spreadsheet(self, params: dict) -> dict:
+        title = params.get("title") or params.get("name", "Untitled Spreadsheet")
+        body = {"properties": {"title": title}}
+        try:
+            result = self.service.spreadsheets().create(body=body).execute()
+        except HttpError as e:
+            raise RuntimeError(f"Sheets create_spreadsheet failed: {e}") from e
+
+        spreadsheet_id = result["spreadsheetId"]
+        return {
+            "status":         "created",
+            "spreadsheet_id": spreadsheet_id,
+            "title":          result.get("properties", {}).get("title", title),
+            "url":            result.get("spreadsheetUrl", f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"),
         }
 
     def _create_sheet(self, params: dict) -> dict:

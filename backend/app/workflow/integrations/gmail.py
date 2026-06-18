@@ -177,7 +177,7 @@ class GmailIntegration(BaseIntegration):
         # Derive a search query from whatever context we have in params
         subject_hint = params.get("subject", "")
         sender_hint  = params.get("from", "")
-        query_parts  = ["in:inbox"]
+        query_parts  = ["category:primary"]
         if subject_hint:
             query_parts.append(f"subject:{subject_hint}")
         if sender_hint:
@@ -280,7 +280,8 @@ class GmailIntegration(BaseIntegration):
                 "  By subject keyword               → \"subject:keyword\"\n"
                 "  By exact sender address          → \"from:someone@domain.com\"\n"
                 "  Recent N days                    → append \"newer_than:7d\" (use when user says 'last week', 'recent', 'last N days')\n"
-                "  Everything in inbox              → \"in:inbox\"\n"
+                "  Primary inbox only (default)      → \"category:primary\" (always used unless user says otherwise)\n"
+                "  Everything in inbox (all tabs)    → \"in:inbox\"\n"
                 "\n"
                 "IMPORTANT — Gmail query rules:\n"
                 "  1. 'Latest' / 'most recent' email → NO time filter. Set max_results:1. Gmail returns newest first.\n"
@@ -315,7 +316,7 @@ class GmailIntegration(BaseIntegration):
                 {
                     "description": "Summarize recent inbox emails",
                     "steps": [
-                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "in:inbox", "max_results": 3}},
+                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "category:primary", "max_results": 3}},
                         {"integration": "gmail",  "action": "read_emails_batch", "params": {"emails": "${step_1.emails}"}},
                         {"integration": "ai",     "action": "summarize",         "params": {"text": "${step_2.combined_text}"}},
                     ],
@@ -350,7 +351,7 @@ class GmailIntegration(BaseIntegration):
                 {
                     "description": "Send emails to both Slack and Sheets without summarizing",
                     "steps": [
-                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "in:inbox", "max_results": 3}},
+                        {"integration": "gmail",  "action": "search_emails",     "params": {"query": "category:primary", "max_results": 3}},
                         {"integration": "gmail",  "action": "read_emails_batch", "params": {"emails": "${step_1.emails}"}},
                         {"integration": "slack",  "action": "send_message",      "params": {"channel": "#general", "text": "${step_2.combined_text}"}},
                         {"integration": "sheets", "action": "append_rows",       "params": {"rows": "${step_1.emails}", "fields": ["from", "subject", "date"], "sheet": "Sheet1"}},
@@ -600,6 +601,12 @@ class GmailIntegration(BaseIntegration):
     def _search_emails(self, params: dict) -> dict:
         query       = params.get("query", "")
         max_results = int(params.get("max_results", 10))
+
+        # Always restrict to the Primary tab unless the query already specifies
+        # a category, label, or a non-inbox mailbox (sent/drafts/spam/trash).
+        _non_primary_markers = ("category:", "label:", "in:sent", "in:drafts", "in:spam", "in:trash", "in:all")
+        if not any(marker in query.lower() for marker in _non_primary_markers):
+            query = f"category:primary {query}".strip()
 
         try:
             result = self.service.users().messages().list(
