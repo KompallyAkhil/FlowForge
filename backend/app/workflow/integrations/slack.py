@@ -332,11 +332,7 @@ class SlackIntegration(BaseIntegration):
         if not text:
             raise ValueError("'text' is required for send_message")
 
-        try:
-            response = self.client.chat_postMessage(channel=channel, text=text)
-        except SlackApiError as e:
-            raise RuntimeError(f"Slack send_message failed: {e.response['error']}") from e
-
+        response = self.client.chat_postMessage(channel=channel, text=text)
         return {
             "status":  "delivered",
             "channel": response["channel"],
@@ -457,13 +453,9 @@ class SlackIntegration(BaseIntegration):
         blocks      = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*\n{text}"}}]
         attachments = [{"color": color, "blocks": blocks}]
 
-        try:
-            response = self.client.chat_postMessage(
-                channel=channel, text=title, attachments=attachments
-            )
-        except SlackApiError as e:
-            raise RuntimeError(f"Slack post_notification failed: {e.response['error']}") from e
-
+        response = self.client.chat_postMessage(
+            channel=channel, text=title, attachments=attachments
+        )
         return {
             "status":  "posted",
             "channel": response["channel"],
