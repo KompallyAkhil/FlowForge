@@ -91,36 +91,30 @@ Persistence
 
 ```mermaid
 flowchart TD
-    User([User]) --> FE
+    User([User]) --> Frontend
 
-    subgraph FE["Next.js Frontend  (port 3000)"]
-        UI[Workflow UI\nCreate · Review · Execute · History]
-        AgentUI[Agent Chat]
-    end
+    Frontend[Next.js Frontend\nport 3000] -- REST / JSON --> Backend
 
-    FE -->|REST / JSON| BE
+    Backend[FastAPI Backend\nport 8000] --> Planner
+    Backend --> ExecEngine
+    Backend --> Agent
+    Backend --> Chat
 
-    subgraph BE["FastAPI Backend  (port 8000)"]
-        Planner[LLM Planner]
-        ExEng[Execution Engine\n4-layer failure recovery]
-        ReactAg[LangGraph ReAct Agent]
-        AIDen[Aiden Chat Assistant]
-        Adapters[Integration Adapters\nGmail · Slack · Sheets · AI · Generic]
-        DB[(SQLite)]
-    end
+    Planner[LLM Planner\nnatural language → workflow steps]
+    ExecEngine[Execution Engine\nruns steps · retries · recovers]
+    Agent[LangGraph ReAct Agent\nfree-form tool use]
+    Chat[Aiden Chat Assistant\nmulti-turn · memory · tools]
 
-    Planner --> ExEng
-    ExEng --> Adapters
-    ExEng --> DB
+    ExecEngine --> Adapters[Integration Adapters\nGmail · Slack · Sheets · AI · Generic]
+    ExecEngine --> DB[(SQLite)]
     Adapters --> DB
 
-    BE -->|API calls| ExtSvcs
+    Planner -- generates plan for --> ExecEngine
+    Agent --> Adapters
 
-    subgraph ExtSvcs["External Services"]
-        LLM[LLM Providers\nOpenRouter · Groq · Anthropic]
-        Google[Gmail + Sheets APIs]
-        Slack[Slack API]
-    end
+    Adapters -- Gmail / Sheets --> Google[Google APIs]
+    Adapters -- messages --> Slack[Slack API]
+    Planner & ExecEngine & Agent & Chat -- LLM calls --> LLM[LLM Providers\nOpenRouter · Groq · Anthropic]
 ```
 
 ---
