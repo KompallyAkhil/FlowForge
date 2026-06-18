@@ -51,6 +51,7 @@ https://github.com/user-attachments/assets/3ecbe1af-69b4-4c04-90e4-ae045eb6e9ac
 
 FlowForge has three layers: a **Next.js frontend**, a **FastAPI backend**, and **external services** (LLM providers + Google/Slack APIs). All communication between frontend and backend is REST/JSON.
 
+
 ### Layers at a glance
 
 | Layer | Tech | Responsibility |
