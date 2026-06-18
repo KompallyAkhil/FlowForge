@@ -91,30 +91,44 @@ Persistence
 
 ```mermaid
 flowchart TD
-    User([User]) --> Frontend
+    User([User])
 
-    Frontend[Next.js Frontend\nport 3000] -- REST / JSON --> Backend
+    User -- describe automation --> CreateView[Create View\nnatural-language input]
+    User -- review steps --> ReviewView[Review View\ninspect · edit · approve]
+    User -- watch progress --> ExecView[Execution View\nlive polling every 1.5 s]
+    User -- free-form queries --> AgentUI[Agent Chat UI\n/agent page]
 
-    Backend[FastAPI Backend\nport 8000] --> Planner
-    Backend --> ExecEngine
-    Backend --> Agent
-    Backend --> Chat
+    CreateView -- POST /api/workflows --> Planner[LLM Planner\nbuilds WorkflowDefinition from prompt]
+    ReviewView -- POST /approve --> ExecEngine
+    AgentUI -- POST /api/agent/runs --> ReactAgent[LangGraph ReAct Agent\nfree-form tool use · dynamic tool calls]
 
-    Planner[LLM Planner\nnatural language → workflow steps]
-    ExecEngine[Execution Engine\nruns steps · retries · recovers]
-    Agent[LangGraph ReAct Agent\nfree-form tool use]
-    Chat[Aiden Chat Assistant\nmulti-turn · memory · tools]
+    Planner -- draft workflow --> WFEngine[Workflow Engine\nCRUD · versioning · diff]
+    WFEngine -- saves --> DB[(SQLite\nWorkflow · Version · Execution · Credential)]
 
-    ExecEngine --> Adapters[Integration Adapters\nGmail · Slack · Sheets · AI · Generic]
-    ExecEngine --> DB[(SQLite)]
-    Adapters --> DB
+    ReviewView -- edit steps --> WFEngine
+    WFEngine -- on approve --> ExecEngine[Execution Engine\nsequential step runner · resolve refs · retry]
 
-    Planner -- generates plan for --> ExecEngine
-    Agent --> Adapters
+    ExecEngine -- runs each step --> Adapters[Integration Adapters\nGmail · Slack · Sheets · AI · Generic]
+    ExecEngine -- logs results --> DB
+    ExecEngine -- step fails after retries --> FailureAgent[Failure Recovery Agent\nreads outputs · patches params · retries]
+    FailureAgent --> Adapters
 
-    Adapters -- Gmail / Sheets --> Google[Google APIs]
-    Adapters -- messages --> Slack[Slack API]
-    Planner & ExecEngine & Agent & Chat -- LLM calls --> LLM[LLM Providers\nOpenRouter · Groq · Anthropic]
+    Adapters -- DB-first credential lookup --> CredStore[Credential Store\nOAuth tokens · Slack bot token]
+    CredStore --> DB
+
+    Adapters -- emails --> GmailAPI[Gmail API]
+    Adapters -- spreadsheets --> SheetsAPI[Sheets API]
+    Adapters -- messages --> SlackAPI[Slack API]
+
+    Scheduler[APScheduler\ncron per workflow] -- fires on schedule --> ExecEngine
+
+    ReactAgent --> Adapters
+
+    ExecView -- GET /api/executions --> DB
+
+    AidenChat[Aiden Chat Assistant\nmulti-turn · memory · tools] -- session history --> DB
+
+    Planner & ExecEngine & ReactAgent & FailureAgent & AidenChat & Adapters -- LLM calls --> LLM[LLM Providers\nOpenRouter · Groq · Anthropic]
 ```
 
 ---
