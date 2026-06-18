@@ -40,7 +40,7 @@ from typing import Any
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from app.workflow.integrations.base import BaseIntegration, ErrorCategory
+from app.workflow.integrations.base import BaseIntegration, ErrorCategory, HumanInputRequired
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +142,18 @@ class SlackIntegration(BaseIntegration):
             try:
                 channel_id = self._resolve_channel_id(params["channel"])
                 return self._dispatch(action, {**params, "channel": channel_id})
+            except RuntimeError as inner:
+                # _resolve_channel_id raises RuntimeError when the channel truly doesn't exist
+                msg = str(inner).lower()
+                if "not found" in msg or "could not look up" in msg:
+                    channel_name = params["channel"].lstrip("#")
+                    raise HumanInputRequired(
+                        question=f"Slack channel '#{channel_name}' does not exist. Create it?",
+                        integration_name="slack",
+                        resource_type="channel",
+                        resource_name=channel_name,
+                    )
+                raise inner
             except Exception as inner:
                 raise inner
 

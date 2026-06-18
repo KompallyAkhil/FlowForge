@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import type { Execution, ExecutionLog, Workflow, WorkflowStep } from "@/lib/types"
+import type { Execution, ExecutionLog, PendingInput, Workflow, WorkflowStep } from "@/lib/types"
 import { statusColor, calcElapsed } from "@/lib/utils"
 import { Spinner } from "@/components/ui/spinner"
 import { Dot } from "@/components/ui/dot"
@@ -30,6 +30,74 @@ function deriveStepStatus(
   return "pending"
 }
 
+// ── Human-in-the-loop prompt card ────────────────────────────────────────────
+
+interface HumanInputCardProps {
+  pendingInput: PendingInput
+  onRespond: (choice: "create" | "skip") => void
+  responding: boolean
+}
+
+function HumanInputCard({ pendingInput, onRespond, responding }: HumanInputCardProps) {
+  const integrationLabel = pendingInput.integration === "slack" ? "Slack channel" : "Sheet tab"
+  const resourceLabel = pendingInput.integration === "slack"
+    ? `#${pendingInput.resource_name}`
+    : `"${pendingInput.resource_name}"`
+
+  return (
+    <div className="rounded-xl p-4 flex flex-col gap-3"
+      style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.3)" }}
+    >
+      <div>
+        <div className="text-[11px] font-semibold tracking-[0.08em] uppercase mb-1.5 text-warning">
+          Action Required
+        </div>
+        <div className="text-[13.5px] text-primary leading-snug">
+          {pendingInput.question}
+        </div>
+        <div className="text-[11.5px] text-muted mt-1">
+          The {integrationLabel} {resourceLabel} does not exist yet.
+          Choose how to proceed.
+        </div>
+      </div>
+      <div className="flex items-center gap-2.5">
+        <button
+          onClick={() => onRespond("create")}
+          disabled={responding}
+          style={{
+            padding: "6px 16px",
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            background: responding ? "rgba(245,158,11,0.3)" : "rgba(245,158,11,0.18)",
+            border: "1px solid rgba(245,158,11,0.4)",
+            color: "#f59e0b",
+            cursor: responding ? "not-allowed" : "pointer",
+          }}
+        >
+          {responding ? "Creating…" : `Yes, create ${resourceLabel}`}
+        </button>
+        <button
+          onClick={() => onRespond("skip")}
+          disabled={responding}
+          style={{
+            padding: "6px 16px",
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 500,
+            background: "transparent",
+            border: "1px solid rgba(255,255,255,0.12)",
+            color: "var(--muted, #94a3b8)",
+            cursor: responding ? "not-allowed" : "pointer",
+          }}
+        >
+          Skip this step
+        </button>
+      </div>
+    </div>
+  )
+}
+
 interface ExecutionViewProps {
   executionId: string
   workflow: Workflow
@@ -37,9 +105,10 @@ interface ExecutionViewProps {
 }
 
 export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewProps) {
-  const [ex, setEx]         = useState<Execution | null>(null)
-  const [logs, setLogs]     = useState<ExecutionLog[]>([])
+  const [ex, setEx]             = useState<Execution | null>(null)
+  const [logs, setLogs]         = useState<ExecutionLog[]>([])
   const [stopping, setStopping] = useState(false)
+  const [responding, setResponding] = useState(false)
   const doneRef   = useRef(false)
   const onDoneRef = useRef(onDone)
   const steps     = workflow.workflow_json.steps as WorkflowStep[]
@@ -47,30 +116,105 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
   useEffect(() => { onDoneRef.current = onDone }, [onDone])
 
   useEffect(() => {
-    let unmounted = false
+    let source: EventSource | null = null
+    let closed = false
 
-    async function poll() {
-      if (unmounted || doneRef.current) return
+    async function loadInitialState() {
       try {
         const [data, liveLogs] = await Promise.all([
           api.getExecution(executionId),
           api.getExecutionLogs(executionId).catch(() => [] as ExecutionLog[]),
         ])
-        if (!unmounted) {
-          setEx(data)
-          setLogs(liveLogs)
-        }
+        setEx(data)
+        setLogs(liveLogs)
+        // Already terminal before we even opened the stream
         if (TERMINAL.has(data.status) && !doneRef.current) {
           doneRef.current = true
-          if (!unmounted) onDoneRef.current(data, liveLogs)
+          onDoneRef.current(data, liveLogs)
           return
         }
-      } catch { /* ignore transient errors */ }
-      if (!unmounted) setTimeout(poll, 1500)
+      } catch { /* ignore */ }
     }
 
-    poll()
-    return () => { unmounted = true }
+    function openStream() {
+      if (closed) return
+      source = new EventSource(api.executionStreamUrl(executionId))
+
+      source.onmessage = (e: MessageEvent) => {
+        if (closed) return
+        let event: Record<string, unknown>
+        try { event = JSON.parse(e.data) } catch { return }
+
+        if (event.type === "heartbeat") return
+
+        if (event.type === "step") {
+          const log: ExecutionLog = {
+            id:           `sse-${event.step_index}`,
+            execution_id: executionId,
+            step_index:   event.step_index as number,
+            step_name:    event.step_name as string,
+            integration:  event.integration as string,
+            action:       event.action as string,
+            status:       event.status as "success" | "failed" | "skipped",
+            input_data:   null,
+            output_data:  (event.output_data as Record<string, unknown>) ?? null,
+            error:        (event.error as string) ?? null,
+            retry_count:  (event.retry_count as number) ?? 0,
+            created_at:   new Date().toISOString(),
+            updated_at:   null,
+          }
+          setLogs(prev => {
+            const filtered = prev.filter(l => l.step_index !== log.step_index)
+            return [...filtered, log].sort((a, b) => a.step_index - b.step_index)
+          })
+          setEx(prev => prev ? { ...prev, current_step: event.current_step as number, status: "running" } : prev)
+          return
+        }
+
+        if (event.type === "terminal") {
+          source?.close()
+          closed = true
+          // Fetch canonical state for accurate duration_seconds / completed_at
+          Promise.all([
+            api.getExecution(executionId),
+            api.getExecutionLogs(executionId).catch(() => [] as ExecutionLog[]),
+          ]).then(([data, finalLogs]) => {
+            setEx(data)
+            setLogs(finalLogs)
+            if (!doneRef.current) {
+              doneRef.current = true
+              onDoneRef.current(data, finalLogs)
+            }
+          }).catch(() => {})
+          return
+        }
+
+        if (event.type === "waiting_input") {
+          source?.close()
+          closed = true
+          setEx(prev => prev ? {
+            ...prev,
+            status:        "waiting_input",
+            current_step:  event.current_step as number,
+            pending_input: event.pending_input as typeof prev.pending_input,
+          } : prev)
+          return
+        }
+      }
+
+      source.onerror = () => {
+        if (closed) return
+        source?.close()
+        // Reconnect after a short delay if execution is still running
+        if (!doneRef.current) setTimeout(openStream, 2000)
+      }
+    }
+
+    loadInitialState().then(openStream)
+    return () => {
+      closed = true
+      source?.close()
+    }
   }, [executionId])
 
   async function handleStop() {
@@ -81,6 +225,65 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
       // Polling will detect "cancelled" and call onDone automatically
     } catch {
       setStopping(false)
+    }
+  }
+
+  async function handleRespond(choice: "create" | "skip") {
+    if (responding) return
+    setResponding(true)
+    try {
+      const updated = await api.respondToExecution(executionId, choice)
+      setEx(updated)
+      if (TERMINAL.has(updated.status)) {
+        // skip or last step was completed — execution is done
+        const finalLogs = await api.getExecutionLogs(executionId).catch(() => logs)
+        setLogs(finalLogs)
+        if (!doneRef.current) {
+          doneRef.current = true
+          onDoneRef.current(updated, finalLogs)
+        }
+        return
+      }
+      // Resource created or step skipped with more steps — re-open SSE stream
+      doneRef.current = false
+      const src = new EventSource(api.executionStreamUrl(executionId))
+      src.onmessage = (e: MessageEvent) => {
+        let event: Record<string, unknown>
+        try { event = JSON.parse(e.data) } catch { return }
+        if (event.type === "heartbeat") return
+        if (event.type === "step") {
+          const log: ExecutionLog = {
+            id: `sse-${event.step_index}`, execution_id: executionId,
+            step_index: event.step_index as number, step_name: event.step_name as string,
+            integration: event.integration as string, action: event.action as string,
+            status: event.status as "success" | "failed" | "skipped",
+            input_data: null, output_data: (event.output_data as Record<string, unknown>) ?? null,
+            error: (event.error as string) ?? null, retry_count: (event.retry_count as number) ?? 0,
+            created_at: new Date().toISOString(), updated_at: null,
+          }
+          setLogs(prev => [...prev.filter(l => l.step_index !== log.step_index), log].sort((a, b) => a.step_index - b.step_index))
+          setEx(prev => prev ? { ...prev, current_step: event.current_step as number, status: "running" } : prev)
+          return
+        }
+        if (event.type === "terminal") {
+          src.close()
+          Promise.all([api.getExecution(executionId), api.getExecutionLogs(executionId).catch(() => [] as ExecutionLog[])])
+            .then(([data, finalLogs]) => {
+              setEx(data); setLogs(finalLogs)
+              if (!doneRef.current) { doneRef.current = true; onDoneRef.current(data, finalLogs) }
+            })
+          return
+        }
+        if (event.type === "waiting_input") {
+          src.close()
+          setEx(prev => prev ? { ...prev, status: "waiting_input", current_step: event.current_step as number, pending_input: event.pending_input as typeof prev.pending_input } : prev)
+        }
+      }
+      src.onerror = () => src.close()
+    } catch {
+      /* ignore — user can retry */
+    } finally {
+      setResponding(false)
     }
   }
 
@@ -106,6 +309,8 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
           <div className="font-medium text-[14px] text-primary">
             {ex.status === "running"
               ? `Step ${ex.current_step + 1} of ${steps.length} · ${steps[ex.current_step]?.name ?? "…"}`
+              : ex.status === "waiting_input"
+              ? `Paused at step ${ex.current_step + 1} · Waiting for your input`
               : ex.status === "cancelled"
               ? "Execution stopped"
               : `Execution ${ex.status}`}
@@ -169,6 +374,15 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
             Execution paused at step {ex.current_step + 1} · Resume to continue from here
           </div>
         </div>
+      )}
+
+      {/* Human-in-the-loop prompt */}
+      {ex.status === "waiting_input" && ex.pending_input && (
+        <HumanInputCard
+          pendingInput={ex.pending_input}
+          onRespond={handleRespond}
+          responding={responding}
+        />
       )}
 
       {/* Steps */}

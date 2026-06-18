@@ -40,8 +40,11 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
     from app.database import init_db
     from app.scheduler import start_scheduler, stop_scheduler, load_scheduled_workflows
+    from app.workflow.engine.execution_engine import set_event_loop
+    set_event_loop(asyncio.get_event_loop())
     init_db()
     _reset_stuck_executions()
     start_scheduler()

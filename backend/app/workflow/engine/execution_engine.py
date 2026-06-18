@@ -43,6 +43,7 @@
 #   run_in_background()             → creates its own DB session for background task use
 #   run_scheduled_workflow()        → called by the APScheduler _fire_workflow callback
 # =============================================================================
+import asyncio
 import uuid
 import json
 import logging
@@ -51,6 +52,7 @@ from datetime import datetime, UTC
 from sqlalchemy.orm import Session
 from app.workflow.db_models import Execution, ExecutionLog, Workflow
 from app.workflow.integrations import IntegrationRegistry
+from app.workflow.integrations.base import HumanInputRequired
 from app.workflow.schemas import WorkflowDefinition, StepSchema
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,35 @@ RETRY_DELAY_SECONDS = 1
 
 class EmptyResultsError(Exception):
     """Raised when a step output list is empty and a downstream step tries to index into it."""
+
+
+# ── SSE push infrastructure ───────────────────────────────────────────────────
+# One asyncio.Queue per active streaming client. The background execution thread
+# pushes events via call_soon_threadsafe; the async SSE generator drains them.
+
+_execution_queues: dict[str, asyncio.Queue] = {}
+_event_loop: asyncio.AbstractEventLoop | None = None
+
+
+def set_event_loop(loop: asyncio.AbstractEventLoop) -> None:
+    global _event_loop
+    _event_loop = loop
+
+
+def register_stream_queue(execution_id: str, queue: asyncio.Queue) -> None:
+    _execution_queues[execution_id] = queue
+
+
+def deregister_stream_queue(execution_id: str) -> None:
+    _execution_queues.pop(execution_id, None)
+
+
+def _notify(execution_id: str, payload: dict) -> None:
+    """Push an SSE event from the sync background thread to the async queue."""
+    queue = _execution_queues.get(execution_id)
+    if queue is None or _event_loop is None or _event_loop.is_closed():
+        return
+    _event_loop.call_soon_threadsafe(queue.put_nowait, payload)
 
 
 # ── Execution record management ──────────────────────────────────────────────
@@ -348,6 +379,7 @@ def run_execution(db: Session, execution_id: str) -> Execution:
             execution.completed_at = execution.completed_at or datetime.now(UTC)
             db.commit()
             logger.info("Execution %s cancelled by user at step %d", execution_id, i + 1)
+            _notify(execution_id, {"type": "terminal", "status": "cancelled", "error": "Stopped by user", "current_step": i})
             return execution
 
         logger.info(
@@ -376,6 +408,8 @@ def run_execution(db: Session, execution_id: str) -> Execution:
             execution.completed_at = datetime.now(UTC)
             db.commit()
             db.refresh(execution)
+            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "skipped", "error": None, "output_data": {"reason": str(exc)}, "retry_count": 0, "current_step": i})
+            _notify(execution_id, {"type": "terminal", "status": "success", "error": None, "current_step": i})
             return execution
         except ValueError as exc:
             # Unresolved ${...} placeholder — fail the step and surface the error.
@@ -395,13 +429,38 @@ def run_execution(db: Session, execution_id: str) -> Execution:
             execution.completed_at = datetime.now(UTC)
             db.commit()
             db.refresh(execution)
+            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "failed", "error": error_msg, "output_data": None, "retry_count": 0, "current_step": i})
+            _notify(execution_id, {"type": "terminal", "status": "failed", "error": error_msg, "current_step": i})
             return execution
 
-        result = _execute_step_with_retry(db, execution.id, i, step, resolved_params)
+        try:
+            result = _execute_step_with_retry(db, execution.id, i, step, resolved_params)
+        except HumanInputRequired as hitl:
+            pending = {
+                "question":        hitl.question,
+                "integration":     hitl.integration_name,
+                "resource_type":   hitl.resource_type,
+                "resource_name":   hitl.resource_name,
+                "step_index":      i,
+                "step_name":       step.name,
+                **hitl.extra,
+            }
+            execution.status = "waiting_input"
+            execution.pending_input = pending
+            execution.current_step = i
+            execution.completed_at = datetime.now(UTC)
+            db.commit()
+            logger.info(
+                "Execution %s paused at step %d — waiting for user input: %s",
+                execution_id, i + 1, hitl.question,
+            )
+            _notify(execution_id, {"type": "waiting_input", "pending_input": pending, "current_step": i})
+            return execution
 
         if result["success"]:
             step_outputs[i] = result["output"]
             logger.info("Execution %s — step %d succeeded", execution_id, i + 1)
+            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "success", "error": None, "output_data": result["output"], "retry_count": 0, "current_step": i + 1})
 
         if not result["success"]:
             logger.error(
@@ -433,14 +492,18 @@ def run_execution(db: Session, execution_id: str) -> Execution:
                     retry_count=0,
                 )
                 step_outputs[i] = agent_result["output"]
+                _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "success", "error": None, "output_data": agent_result["output"], "retry_count": 0, "current_step": i + 1})
                 continue
 
+            error_msg = agent_result["error"] or result["error"]
             execution.status = "failed"
-            execution.error = agent_result["error"] or result["error"]
+            execution.error = error_msg
             execution.completed_at = datetime.now(UTC)
             db.commit()
             db.refresh(execution)
             logger.error("Execution %s failed at step %d: %s", execution_id, i + 1, execution.error)
+            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "failed", "error": error_msg, "output_data": None, "retry_count": MAX_RETRIES, "current_step": i})
+            _notify(execution_id, {"type": "terminal", "status": "failed", "error": error_msg, "current_step": i})
             return execution
 
     execution.status = "success"
@@ -449,6 +512,7 @@ def run_execution(db: Session, execution_id: str) -> Execution:
     db.commit()
     db.refresh(execution)
     logger.info("Execution %s completed successfully", execution_id)
+    _notify(execution_id, {"type": "terminal", "status": "success", "error": None, "current_step": len(steps)})
     return execution
 
 
@@ -507,6 +571,104 @@ def resume_in_background(execution_id: str) -> None:
         db.close()
 
 
+def respond_to_execution(db: Session, execution_id: str, choice: str) -> Execution:
+    """Process a human-in-the-loop response for a waiting_input execution.
+
+    choice="create" — creates the missing resource then resumes from current_step.
+    choice="skip"   — writes a skipped log and advances past the waiting step.
+    """
+    execution = get_execution(db, execution_id)
+    if not execution:
+        raise ValueError(f"Execution '{execution_id}' not found")
+    if execution.status != "waiting_input":
+        raise ValueError(
+            f"Execution is not waiting for input (current status: '{execution.status}')"
+        )
+
+    pending = execution.pending_input or {}
+    integration_name = pending.get("integration", "")
+    resource_type    = pending.get("resource_type", "")
+    resource_name    = pending.get("resource_name", "")
+    step_index       = pending.get("step_index", execution.current_step)
+
+    if choice == "create":
+        # Create the missing resource so the retry can succeed
+        if integration_name == "slack" and resource_type == "channel":
+            IntegrationRegistry.get("slack").execute(
+                "create_channel", {"name": resource_name.lstrip("#")}
+            )
+        elif integration_name == "sheets" and resource_type == "sheet_tab":
+            params: dict = {"name": resource_name}
+            spreadsheet_id = pending.get("spreadsheet_id")
+            if spreadsheet_id:
+                params["spreadsheet_id"] = spreadsheet_id
+            IntegrationRegistry.get("sheets").execute("create_sheet", params)
+
+        # Resume from the same step (resource now exists — it should succeed)
+        execution.status = "pending"
+        execution.pending_input = None
+        execution.error = None
+        execution.completed_at = None
+        db.commit()
+
+    elif choice == "skip":
+        # Write a skipped log entry for the current step
+        wf = db.query(Workflow).filter(Workflow.id == execution.workflow_id).first()
+        steps = (wf.workflow_json.get("steps", []) if wf else [])
+        step_def = steps[step_index] if step_index < len(steps) else {}
+
+        db.add(ExecutionLog(
+            id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            step_index=step_index,
+            step_name=pending.get("step_name", step_def.get("name", f"step_{step_index + 1}")),
+            integration=step_def.get("integration", integration_name),
+            action=step_def.get("action", ""),
+            status="skipped",
+            input_data={},
+            output_data={"reason": "Skipped by user"},
+            error=None,
+            retry_count=0,
+        ))
+
+        next_step = step_index + 1
+        total_steps = len(steps)
+
+        if next_step >= total_steps:
+            # No more steps — mark the whole execution as success
+            execution.status = "success"
+            execution.pending_input = None
+            execution.error = None
+            execution.current_step = next_step
+            execution.completed_at = datetime.now(UTC)
+            db.commit()
+            db.refresh(execution)
+            return execution
+
+        execution.status = "pending"
+        execution.pending_input = None
+        execution.error = None
+        execution.current_step = next_step
+        execution.completed_at = None
+        db.commit()
+
+    else:
+        raise ValueError(f"Unknown choice '{choice}': expected 'create' or 'skip'")
+
+    db.refresh(execution)
+    return execution
+
+
+def respond_in_background(execution_id: str) -> None:
+    """Background entry point used after respond_to_execution sets status=pending."""
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        run_execution(db, execution_id)
+    finally:
+        db.close()
+
+
 def run_scheduled_workflow(db: Session, workflow_id: str) -> None:
     """Called by the scheduler at cron fire time."""
     wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
@@ -555,6 +717,8 @@ def _execute_step_with_retry(
             )
             return {"success": True, "output": output}
 
+        except HumanInputRequired:
+            raise  # must bubble up to run_execution — do not treat as a retryable failure
         except Exception as exc:
             last_error = str(exc)
             logger.warning(

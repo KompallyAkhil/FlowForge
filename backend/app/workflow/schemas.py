@@ -147,6 +147,7 @@ class ExecutionResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     error: str | None
+    pending_input: dict[str, Any] | None = None  # populated when status=waiting_input
 
     @property
     def duration_seconds(self) -> float | None:

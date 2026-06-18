@@ -73,6 +73,8 @@ def _migrate_schema() -> None:
         _add_column_if_missing(conn, "workflow_versions", "name",           "VARCHAR NOT NULL DEFAULT ''")
         _add_column_if_missing(conn, "workflow_versions", "change_summary", "TEXT NOT NULL DEFAULT 'Initial creation'")
         _add_column_if_missing(conn, "workflow_versions", "changed_fields", "JSON")
+        # executions table — pending_input added for human-in-the-loop pauses
+        _add_column_if_missing(conn, "executions", "pending_input", "JSON")
         # execution_logs table
         _add_column_if_missing(conn, "execution_logs", "updated_at",    "DATETIME")
         conn.commit()

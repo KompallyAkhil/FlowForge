@@ -45,7 +45,7 @@ from typing import Any
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from app.workflow.integrations.base import BaseIntegration, ErrorCategory
+from app.workflow.integrations.base import BaseIntegration, ErrorCategory, HumanInputRequired
 
 logger = logging.getLogger(__name__)
 
@@ -227,14 +227,23 @@ class SheetsIntegration(BaseIntegration):
         if not titles:
             raise exc
 
-        # Pick the closest tab: exact match first, then case-insensitive, then first tab
+        # Pick the closest tab: exact match → case-insensitive → substring → ask the user
         lower = bad_sheet.lower()
         matched = (
             next((t for t in titles if t == bad_sheet), None)
             or next((t for t in titles if t.lower() == lower), None)
             or next((t for t in titles if lower in t.lower()), None)
-            or titles[0]
         )
+
+        if matched is None:
+            # Tab truly doesn't exist — ask the user whether to create it
+            raise HumanInputRequired(
+                question=f"Sheet tab '{bad_sheet}' was not found. Create it?",
+                integration_name="sheets",
+                resource_type="sheet_tab",
+                resource_name=bad_sheet,
+                extra={"spreadsheet_id": spreadsheet_id},
+            )
 
         corrected_params = {**params, "sheet": matched}
         # Also fix the range if it was built from the bad sheet name

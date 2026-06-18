@@ -1,5 +1,15 @@
-export type ExecutionStatus = "pending" | "running" | "success" | "failed" | "cancelled"
+export type ExecutionStatus = "pending" | "running" | "success" | "failed" | "cancelled" | "waiting_input"
 export type LogStatus = "success" | "failed" | "skipped"
+
+export interface PendingInput {
+  question: string
+  integration: string
+  resource_type: string
+  resource_name: string
+  step_index: number
+  step_name: string
+  spreadsheet_id?: string
+}
 
 export interface WorkflowStep {
   id: string
@@ -75,6 +85,7 @@ export interface Execution {
   completed_at: string | null
   error: string | null
   duration_seconds?: number | null
+  pending_input?: PendingInput | null
 }
 
 // ── Execution session chat ─────────────────────────────────────────────────

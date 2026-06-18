@@ -79,11 +79,12 @@ class Execution(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False, index=True)
-    status = Column(String, default="pending")  # pending | running | success | failed
+    status = Column(String, default="pending")  # pending | running | success | failed | cancelled | waiting_input
     current_step = Column(Integer, default=0)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     error = Column(Text, nullable=True)
+    pending_input = Column(JSON, nullable=True)  # set when status=waiting_input; cleared on respond
 
     workflow = relationship("Workflow", back_populates="executions")
     logs = relationship("ExecutionLog", back_populates="execution", cascade="all, delete-orphan")

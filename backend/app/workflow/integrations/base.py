@@ -56,6 +56,30 @@ from typing import Any, Annotated, TypedDict
 logger = logging.getLogger(__name__)
 
 
+class HumanInputRequired(Exception):
+    """
+    Raised by an integration's _recover_fixable when it cannot auto-fix the error
+    and needs the user to decide (e.g. "Channel not found — create it?").
+
+    The execution engine catches this, pauses the execution with status='waiting_input',
+    and stores the question payload in Execution.pending_input so the frontend can show it.
+    """
+    def __init__(
+        self,
+        question: str,
+        integration_name: str,
+        resource_type: str,
+        resource_name: str,
+        extra: dict | None = None,
+    ) -> None:
+        super().__init__(question)
+        self.question = question
+        self.integration_name = integration_name
+        self.resource_type = resource_type   # e.g. "channel", "sheet_tab"
+        self.resource_name = resource_name   # e.g. "support", "Weight Tracking"
+        self.extra = extra or {}
+
+
 class ErrorCategory(Enum):
     FIXABLE    = auto()   # wrong resource name — discoverable and correctable via Python
     RATE_LIMIT = auto()   # too many requests — exponential backoff then retry
@@ -178,6 +202,8 @@ class BaseIntegration(ABC):
             logger.info("[%s] FIXABLE error — attempting Python recovery", name)
             try:
                 return self._recover_fixable(action, params, exc)
+            except HumanInputRequired:
+                raise  # must bubble up to the execution engine — do not hand to LangGraph
             except Exception as fix_exc:
                 logger.warning(
                     "[%s] Python recovery failed (%s) — escalating to LangGraph agent",

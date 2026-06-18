@@ -29,8 +29,10 @@
 # every 1500ms during execution. The logs endpoint is the source of truth for
 # step-level progress — the execution row only tracks overall status.
 # =============================================================================
+import asyncio
 import json
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -73,6 +75,57 @@ def get_execution_logs(execution_id: str, db: Session = Depends(get_db)):
     return execution_engine.get_execution_logs(db, execution_id)
 
 
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",   # disable nginx buffering
+    "Connection": "keep-alive",
+}
+_TERMINAL_STATUSES = {"success", "failed", "cancelled"}
+
+
+@router.get("/{execution_id}/stream")
+async def stream_execution(execution_id: str, db: Session = Depends(get_db)):
+    """Server-Sent Events stream. Pushes a JSON event for every step completion
+    and a final 'terminal' event when the execution ends. The client can replace
+    polling with a single persistent connection to this endpoint."""
+    ex = execution_engine.get_execution(db, execution_id)
+    if not ex:
+        raise HTTPException(status_code=404, detail="Execution not found")
+
+    # Already in a terminal state — send one event and close immediately
+    if ex.status in _TERMINAL_STATUSES:
+        async def _immediate_terminal():
+            payload = json.dumps({"type": "terminal", "status": ex.status, "error": ex.error, "current_step": ex.current_step}, default=str)
+            yield f"data: {payload}\n\n"
+        return StreamingResponse(_immediate_terminal(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+    if ex.status == "waiting_input":
+        async def _immediate_hitl():
+            payload = json.dumps({"type": "waiting_input", "pending_input": ex.pending_input, "current_step": ex.current_step}, default=str)
+            yield f"data: {payload}\n\n"
+        return StreamingResponse(_immediate_hitl(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+    # Live stream — register a queue and yield events as the background thread pushes them
+    queue: asyncio.Queue = asyncio.Queue()
+    execution_engine.register_stream_queue(execution_id, queue)
+
+    async def generator():
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=25.0)
+                except asyncio.TimeoutError:
+                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                    continue
+                yield f"data: {json.dumps(event, default=str)}\n\n"
+                if event.get("type") in ("terminal", "waiting_input"):
+                    break
+        finally:
+            execution_engine.deregister_stream_queue(execution_id)
+
+    return StreamingResponse(generator(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
 @router.post("/{execution_id}/cancel", response_model=ExecutionResponse)
 def cancel_execution(execution_id: str, db: Session = Depends(get_db)):
     """Request cancellation of a running execution.
@@ -112,6 +165,42 @@ def resume_execution(
         )
     background_tasks.add_task(execution_engine.resume_in_background, execution_id)
     return ex
+
+
+class RespondRequest(BaseModel):
+    choice: str  # "create" | "skip"
+
+
+@router.post("/{execution_id}/respond", response_model=ExecutionResponse, status_code=202)
+def respond_to_execution(
+    execution_id: str,
+    req: RespondRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Respond to a human-in-the-loop pause.
+
+    choice='create' — creates the missing resource and resumes from the same step.
+    choice='skip'   — skips the waiting step and continues from the next one.
+    """
+    ex = execution_engine.get_execution(db, execution_id)
+    if not ex:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    if ex.status != "waiting_input":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Execution is not waiting for input (current status: '{ex.status}')",
+        )
+    try:
+        updated = execution_engine.respond_to_execution(db, execution_id, req.choice)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # If still pending (more steps remain), continue execution in the background
+    if updated.status == "pending":
+        background_tasks.add_task(execution_engine.respond_in_background, execution_id)
+
+    return updated
 
 
 @router.post("/{execution_id}/chat", response_model=ExecutionChatResponse)

@@ -111,6 +111,15 @@ export const cancelExecution = (id: string): Promise<Execution> =>
 export const resumeExecution = (id: string): Promise<Execution> =>
   req(`/api/executions/${id}/resume`, { method: "POST" })
 
+export const respondToExecution = (id: string, choice: "create" | "skip"): Promise<Execution> =>
+  req(`/api/executions/${id}/respond`, {
+    method: "POST",
+    body: JSON.stringify({ choice }),
+  })
+
+export const executionStreamUrl = (id: string): string =>
+  `${BASE}/api/executions/${id}/stream`
+
 // Version history
 export const getWorkflowVersions = (id: string): Promise<WorkflowVersion[]> =>
   req(`/api/workflows/${id}/versions`)
