@@ -4,3 +4,4 @@ __pycache__
 .vscode
 result.json
 workflow.db
+*.db
