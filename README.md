@@ -92,57 +92,35 @@ Persistence
 ```mermaid
 flowchart TB
     User(["👤 User"])
-    User -->|describe workflow| FE["🖥️ Next.js Frontend\nCreate · Review · Execute · Monitor · Chat"]
-    FE -->|output · results · logs| User
 
-    FE -->|plan workflow| Planner
-    FE -->|approve · edit · reject| WFEngine
-    FE -->|agent query| ReactAgent
+    FE["🖥️ Frontend\nNext.js — Create · Review · Execute · Chat"]
 
-    subgraph Backend["⚙️ FastAPI Backend  (port 8000)"]
-        direction TB
-        Planner["🧠 LLM Planner\nNL → WorkflowDefinition JSON"]
-        WFEngine["📋 Workflow Engine\nCRUD · versioning · diff"]
-        Scheduler["⏰ APScheduler\ncron per workflow"]
-        ExecEngine["⚡ Execution Engine\nstep runner · resolve refs\nHITL · 4-layer failure recovery"]
-        FailAgent["🔧 Failure Recovery Agent\nLangGraph · inspect · patch params"]
-        ReactAgent["🤖 ReAct Agent\nLangGraph · free-form tool use"]
-        AidenChat["💬 Aiden Chat\nmulti-turn · memory · tools"]
-        Adapters["🔌 Integration Adapters\nGmail · Slack · Sheets · AI · Generic"]
-        CredStore["🔑 Credential Store\nDB-first · .env fallback"]
-
-        Planner --> WFEngine
-        WFEngine --> Scheduler
-        WFEngine -->|on approve| ExecEngine
-        Scheduler -->|fires| ExecEngine
-        ExecEngine -->|step fails| FailAgent
-        ExecEngine -->|dispatch step| Adapters
-        FailAgent --> Adapters
-        ReactAgent --> Adapters
-        Adapters --> CredStore
+    subgraph Backend["⚙️ Backend — FastAPI + SQLite"]
+        Planner["🧠 AI Planner\nTurns plain English into workflow steps"]
+        Engine["⚡ Execution Engine\nRuns steps · retries · auto-recovery"]
+        Chat["💬 Chat & Agent\nAiden assistant · ReAct agent"]
+        DB[("🗄️ SQLite\nAll data stored here")]
     end
 
-    Planner -->|workflow plan| FE
-    ExecEngine -->|SSE stream · logs · HITL prompt| FE
-    AidenChat -->|chat reply| FE
-    ReactAgent -->|agent response| FE
+    subgraph External["External Services"]
+        LLM["✨ LLM\nOpenRouter · Groq · Anthropic"]
+        APIs["🔌 Integrations\nGmail · Slack · Google Sheets"]
+    end
 
-    WFEngine --> DB
-    ExecEngine --> DB
-    CredStore --> DB
-    AidenChat --> DB
-    DB[("🗄️ SQLite\nWorkflows · Executions\nVersions · Credentials")]
-
-    Adapters --> GmailAPI["📧 Gmail API"]
-    Adapters --> SheetsAPI["📊 Sheets API"]
-    Adapters --> SlackAPI["💬 Slack API"]
-
-    Planner --> LLM["✨ LLM Providers\nOpenRouter · Groq · Anthropic"]
-    ExecEngine --> LLM
-    FailAgent --> LLM
-    ReactAgent --> LLM
-    AidenChat --> LLM
-    Adapters --> LLM
+    User         -->|"Step 1 · describe workflow"| FE
+    FE           -->|"Step 2 · send to AI planner"| Planner
+    Planner      -->|"Step 3 · generate steps"| LLM
+    Planner      -->|"Step 4 · workflow saved"| DB
+    Planner      -->|"Step 5 · workflow ready for review"| FE
+    FE           -->|"Step 6 · approve & run"| Engine
+    Engine       -->|"Step 7 · call Gmail / Slack / Sheets"| APIs
+    Engine       -->|"Step 8 · AI summarize / extract"| LLM
+    Engine       -->|"Step 9 · save logs & results"| DB
+    Engine       -->|"Step 10 · live status stream"| FE
+    FE           -->|"Step 11 · results & updates"| User
+    FE           -->|"Step 12 · ask about the run"| Chat
+    Chat         -->|"Step 13 · AI answers"| LLM
+    Chat         -->|"Step 14 · reply"| FE
 ```
 
 ---
@@ -428,7 +406,7 @@ Read-only step card used in both the review and execution/done views. Shows inte
 
 #### `components/workflow/execution-view.tsx` — Live execution
 
-Polls `GET /api/executions/{id}` and `GET /api/executions/{id}/logs` in parallel every 1 500 ms. Features:
+Connects to `GET /api/executions/{id}/stream` via Server-Sent Events (SSE) for real-time step updates. Fetches canonical state from `GET /api/executions/{id}` and `GET /api/executions/{id}/logs` on connect and after each terminal event. Features:
 - Per-step status derived from `ExecutionLog` records
 - Live warning banner when step errors are detected while the execution is still running
 - Top-level failure panel when `ex.status === "failed"`
