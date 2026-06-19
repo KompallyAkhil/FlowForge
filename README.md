@@ -98,6 +98,7 @@ flowchart TB
     subgraph Backend["⚙️ Backend — FastAPI + SQLite"]
         Planner["🧠 AI Planner\nTurns plain English into workflow steps"]
         Engine["⚡ Execution Engine\nRuns steps · retries · auto-recovery"]
+        FailAgent["🔧 Failure Recovery Agent\nDiagnoses errors · patches params · retries"]
         Chat["💬 Chat & Agent\nAiden assistant · ReAct agent"]
         DB[("🗄️ SQLite\nAll data stored here")]
     end
@@ -107,20 +108,24 @@ flowchart TB
         APIs["🔌 Integrations\nGmail · Slack · Google Sheets"]
     end
 
-    User         -->|"Step 1 · describe workflow"| FE
-    FE           -->|"Step 2 · send to AI planner"| Planner
-    Planner      -->|"Step 3 · generate steps"| LLM
-    Planner      -->|"Step 4 · workflow saved"| DB
-    Planner      -->|"Step 5 · workflow ready for review"| FE
-    FE           -->|"Step 6 · approve & run"| Engine
-    Engine       -->|"Step 7 · call Gmail / Slack / Sheets"| APIs
-    Engine       -->|"Step 8 · AI summarize / extract"| LLM
-    Engine       -->|"Step 9 · save logs & results"| DB
-    Engine       -->|"Step 10 · live status stream"| FE
-    FE           -->|"Step 11 · results & updates"| User
-    FE           -->|"Step 12 · ask about the run"| Chat
-    Chat         -->|"Step 13 · AI answers"| LLM
-    Chat         -->|"Step 14 · reply"| FE
+    User      -->|"Step 1 · describe workflow"| FE
+    FE        -->|"Step 2 · send to AI planner"| Planner
+    Planner   -->|"Step 3 · generate steps"| LLM
+    Planner   -->|"Step 4 · workflow saved"| DB
+    Planner   -->|"Step 5 · workflow ready for review"| FE
+    FE        -->|"Step 6 · approve & run"| Engine
+    Engine    -->|"Step 7 · call Gmail / Slack / Sheets"| APIs
+    Engine    -->|"Step 8 · AI summarize / extract"| LLM
+    Engine    -->|"Step 9 · step fails → trigger recovery"| FailAgent
+    FailAgent -->|"Step 10 · diagnose & patch params"| LLM
+    FailAgent -->|"Step 11 · retry the fixed step"| APIs
+    FailAgent -->|"Step 12 · recovered / give up"| Engine
+    Engine    -->|"Step 13 · save logs & results"| DB
+    Engine    -->|"Step 14 · live status stream"| FE
+    FE        -->|"Step 15 · results & updates"| User
+    FE        -->|"Step 16 · ask about the run"| Chat
+    Chat      -->|"Step 17 · AI answers"| LLM
+    Chat      -->|"Step 18 · reply"| FE
 ```
 
 ---
