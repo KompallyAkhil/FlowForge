@@ -184,5 +184,6 @@ class ExecutionLogResponse(BaseModel):
     output_data: dict[str, Any] | None
     error: str | None
     retry_count: int
+    started_at: datetime | None = None
     created_at: datetime
     updated_at: datetime | None = None

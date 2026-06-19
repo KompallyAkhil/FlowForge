@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import type { Execution } from "@/lib/types"
-import { statusColor, calcDuration, fmtDate } from "@/lib/utils"
+import { statusColor, calcDuration } from "@/lib/utils"
 import { Dot } from "@/components/ui/dot"
 import { Spinner } from "@/components/ui/spinner"
 import * as api from "@/lib/api"
@@ -56,9 +56,6 @@ export function HistoryPanel({ workflowId, onSelect }: HistoryPanelProps) {
             <Dot color={col} size={7} />
             <div className="flex-1 min-w-0">
               <div className="text-[13px] font-medium text-primary capitalize">{ex.status}</div>
-              <div className="text-[11.5px] text-muted mt-0.5">
-                {ex.started_at ? fmtDate(ex.started_at) : "—"}
-              </div>
             </div>
             <div className="flex flex-col items-end gap-0.5 shrink-0">
               {dur && <span className="text-[11.5px] text-muted">{dur}</span>}

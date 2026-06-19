@@ -85,7 +85,7 @@ SUMMARIZE_STYLE_INSTRUCTIONS: dict[str, str] = {
     "paragraph":     "Summarize in concise sentences as a single paragraph.",
     "brief":         "Summarize in exactly one sentence.",
 }
-SUMMARIZE_STYLE_DEFAULT = "Summarize in  clear bullet points, each starting with a dash."
+SUMMARIZE_STYLE_DEFAULT = "Summarize the content in a detailed manner, each starting with a dash."
 
 # {context}          — optional "Subject: ...\nFrom: ...\n" block (may be empty string)
 # {text}             — content to summarize (pre-truncated by caller)

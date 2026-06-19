@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import type { WorkflowVersion, ChangeField } from "@/lib/types"
-import { C, fmtDate } from "@/lib/utils"
+import { C } from "@/lib/utils"
 import { Spinner } from "@/components/ui/spinner"
 import * as api from "@/lib/api"
 
@@ -136,7 +136,7 @@ function VersionRow({ ver }: { ver: WorkflowVersion }) {
             {ver.change_summary}
           </div>
           <div className="text-[11px] text-muted mt-0.5">
-            {fmtDate(ver.created_at)} · {ver.workflow_json.steps?.length ?? 0} steps
+            {ver.workflow_json.steps?.length ?? 0} steps
           </div>
         </div>
 

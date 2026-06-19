@@ -109,6 +109,7 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
   const [logs, setLogs]         = useState<ExecutionLog[]>([])
   const [stopping, setStopping] = useState(false)
   const [responding, setResponding] = useState(false)
+  const [stepStartTimes, setStepStartTimes] = useState<Record<number, string>>({})
   const doneRef   = useRef(false)
   const onDoneRef = useRef(onDone)
   const steps     = workflow.workflow_json.steps as WorkflowStep[]
@@ -147,6 +148,13 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
 
         if (event.type === "heartbeat") return
 
+        if (event.type === "step_started") {
+          const idx = event.step_index as number
+          const startedAt = (event.started_at as string) ?? new Date().toISOString()
+          setStepStartTimes(prev => ({ ...prev, [idx]: startedAt }))
+          return
+        }
+
         if (event.type === "step") {
           const log: ExecutionLog = {
             id:           `sse-${event.step_index}`,
@@ -160,7 +168,8 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
             output_data:  (event.output_data as Record<string, unknown>) ?? null,
             error:        (event.error as string) ?? null,
             retry_count:  (event.retry_count as number) ?? 0,
-            created_at:   new Date().toISOString(),
+            started_at:   (event.started_at as string) ?? null,
+            created_at:   (event.ended_at as string) ?? new Date().toISOString(),
             updated_at:   null,
           }
           setLogs(prev => {
@@ -251,6 +260,12 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
         let event: Record<string, unknown>
         try { event = JSON.parse(e.data) } catch { return }
         if (event.type === "heartbeat") return
+        if (event.type === "step_started") {
+          const idx = event.step_index as number
+          const startedAt = (event.started_at as string) ?? new Date().toISOString()
+          setStepStartTimes(prev => ({ ...prev, [idx]: startedAt }))
+          return
+        }
         if (event.type === "step") {
           const log: ExecutionLog = {
             id: `sse-${event.step_index}`, execution_id: executionId,
@@ -259,7 +274,8 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
             status: event.status as "success" | "failed" | "skipped",
             input_data: null, output_data: (event.output_data as Record<string, unknown>) ?? null,
             error: (event.error as string) ?? null, retry_count: (event.retry_count as number) ?? 0,
-            created_at: new Date().toISOString(), updated_at: null,
+            started_at: (event.started_at as string) ?? null,
+            created_at: (event.ended_at as string) ?? new Date().toISOString(), updated_at: null,
           }
           setLogs(prev => [...prev.filter(l => l.step_index !== log.step_index), log].sort((a, b) => a.step_index - b.step_index))
           setEx(prev => prev ? { ...prev, current_step: event.current_step as number, status: "running" } : prev)
@@ -399,7 +415,7 @@ export function ExecutionView({ executionId, workflow, onDone }: ExecutionViewPr
               stepStatus={st}
               log={log}
               allStepLogs={stepLogs}
-              runningElapsed={st === "running" ? calcElapsed(ex.started_at) : null}
+              runningElapsed={st === "running" ? calcElapsed(stepStartTimes[i] ?? ex.started_at) : null}
             />
           )
         })}

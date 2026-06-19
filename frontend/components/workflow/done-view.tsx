@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import type { Execution, ExecutionLog, Workflow, ExecutionChatMessage } from "@/lib/types"
-import { statusColor, calcDuration, fmtDate } from "@/lib/utils"
+import { statusColor, calcDuration } from "@/lib/utils"
 import { Btn } from "@/components/ui/button"
 import { StepCard } from "./step-card"
 import * as api from "@/lib/api"
@@ -104,7 +104,6 @@ export function DoneView({ execution, logs, workflow, onRunAgain, onResume, onBa
             {calcDuration(execution.started_at, execution.completed_at)
               ? ` · ${calcDuration(execution.started_at, execution.completed_at)}`
               : ""}
-            {execution.started_at ? ` · ${fmtDate(execution.started_at)}` : ""}
           </div>
           {execution.error && (
             <div className="text-danger text-[12px] mt-1 font-mono truncate">{execution.error}</div>

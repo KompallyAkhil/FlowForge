@@ -391,6 +391,9 @@ def run_execution(db: Session, execution_id: str) -> Execution:
             execution_id, i + 1, len(steps), step.integration, step.action,
         )
 
+        step_start = datetime.now(UTC)
+        _notify(execution_id, {"type": "step_started", "step_index": i, "step_name": step.name, "started_at": step_start.isoformat()})
+
         try:
             resolved_params = _resolve_params(step.params, step_outputs)
             _assert_no_unresolved_refs(resolved_params, step.name)
@@ -406,13 +409,15 @@ def run_execution(db: Session, execution_id: str) -> Execution:
                 status="skipped",
                 input_data=step.params,
                 output_data={"reason": str(exc)},
+                started_at=step_start,
             )
             execution.status = "success"
             execution.error = None
             execution.completed_at = datetime.now(UTC)
             db.commit()
             db.refresh(execution)
-            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "skipped", "error": None, "output_data": {"reason": str(exc)}, "retry_count": 0, "current_step": i})
+            step_end = datetime.now(UTC)
+            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "skipped", "error": None, "output_data": {"reason": str(exc)}, "retry_count": 0, "current_step": i, "started_at": step_start.isoformat(), "ended_at": step_end.isoformat()})
             _notify(execution_id, {"type": "terminal", "status": "success", "error": None, "current_step": i})
             return execution
         except ValueError as exc:
@@ -428,13 +433,15 @@ def run_execution(db: Session, execution_id: str) -> Execution:
                 output_data=None,
                 input_data=step.params,
                 error=error_msg,
+                started_at=step_start,
             )
             execution.status = "failed"
             execution.error = error_msg
             execution.completed_at = datetime.now(UTC)
             db.commit()
             db.refresh(execution)
-            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "failed", "error": error_msg, "output_data": None, "retry_count": 0, "current_step": i})
+            step_end = datetime.now(UTC)
+            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "failed", "error": error_msg, "output_data": None, "retry_count": 0, "current_step": i, "started_at": step_start.isoformat(), "ended_at": step_end.isoformat()})
             _notify(execution_id, {"type": "terminal", "status": "failed", "error": error_msg, "current_step": i})
             return execution
 
@@ -465,7 +472,8 @@ def run_execution(db: Session, execution_id: str) -> Execution:
         if result["success"]:
             step_outputs[i] = result["output"]
             logger.info("Execution %s — step %d succeeded", execution_id, i + 1)
-            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "success", "error": None, "output_data": result["output"], "retry_count": 0, "current_step": i + 1})
+            step_end = datetime.now(UTC)
+            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "success", "error": None, "output_data": result["output"], "retry_count": 0, "current_step": i + 1, "started_at": step_start.isoformat(), "ended_at": step_end.isoformat()})
 
         if not result["success"]:
             logger.error(
@@ -495,9 +503,11 @@ def run_execution(db: Session, execution_id: str) -> Execution:
                     input_data=resolved_params,
                     output_data=agent_result["output"],
                     retry_count=0,
+                    started_at=step_start,
                 )
                 step_outputs[i] = agent_result["output"]
-                _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "success", "error": None, "output_data": agent_result["output"], "retry_count": 0, "current_step": i + 1})
+                step_end = datetime.now(UTC)
+                _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "success", "error": None, "output_data": agent_result["output"], "retry_count": 0, "current_step": i + 1, "started_at": step_start.isoformat(), "ended_at": step_end.isoformat()})
                 continue
 
             error_msg = agent_result["error"] or result["error"]
@@ -507,7 +517,8 @@ def run_execution(db: Session, execution_id: str) -> Execution:
             db.commit()
             db.refresh(execution)
             logger.error("Execution %s failed at step %d: %s", execution_id, i + 1, execution.error)
-            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "failed", "error": error_msg, "output_data": None, "retry_count": MAX_RETRIES, "current_step": i})
+            step_end = datetime.now(UTC)
+            _notify(execution_id, {"type": "step", "step_index": i, "step_name": step.name, "integration": step.integration, "action": step.action, "status": "failed", "error": error_msg, "output_data": None, "retry_count": MAX_RETRIES, "current_step": i, "started_at": step_start.isoformat(), "ended_at": step_end.isoformat()})
             _notify(execution_id, {"type": "terminal", "status": "failed", "error": error_msg, "current_step": i})
             return execution
 
